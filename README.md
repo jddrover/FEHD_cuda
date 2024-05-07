@@ -20,3 +20,7 @@ Requires: cublas, cusolver, blas, lapacke
 
 Use:
 
+
+
+pull requests are welcome. Really. 
+
