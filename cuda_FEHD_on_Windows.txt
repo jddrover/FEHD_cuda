@@ -1,0 +1,74 @@
+FEHD is written in c++/cuda which is not exclusive to any particular
+OS. However, I very much am. I do not know how to compile the code in
+windows, nor do any windows users I have asked. The easiest way to use
+cuda (and FEHD) in windows is to install ubuntu as a virtual
+machine. Fortunately, Microsoft has streamlined the process so that it
+doesn't require any specialized knowledge, and it integrates into
+windows seamlessly. It is called WSL2 (windows subsystem linux). It is
+provided by microsoft.
+
+First, FEHD and cuda utilize nvidia gpus. If you have one, check that
+the driver is installed. It should be. If it's not, install it (from
+nvidia website).
+
+Now, install the WSL ubuntu VM. Open a 'powershell' as an
+administrator. At the prompt:
+
+> wsl --install
+
+When it is done, restart the (physical) machine. When you log back in
+a terminal window will open asking to choose a username and a
+password. You'll need these credentials to do administrative
+things. Once you've done this you should be sitting at a prompt in an
+ubuntu terminal window. First thing is to update all of the packages
+to the most recent version.
+
+$ sudo apt-get update
+$ sudo apt-get upgrade
+
+Answer yes when asked whether you want to follow through with the
+installs.
+
+We need some non-cuda libraries, in particular BLAS, LAPACK and an
+LAPACK extension for c++ called LAPACKE. If you request to install
+LAPACKE, everything else we need are dependencies and will be
+installed as well. 
+
+$ sudo apt-get install g++
+$ sudo apt-get install liblapacke-dev
+
+I would restart the machine again here, though I don't know if you
+need to.
+
+Now install the cuda libraries. The links below might be stale, so I
+would go to the cuda download pages and select the ubuntu-WSL version
+https://developer.nvidia.com/cuda-toolkit - it is imperative that you
+choose the WSL version. The WSL version installs the cuda toolkit, but
+not the driver. The system driver that you verified above, in the
+first step, is used. Installing a driver in the VM won't work. 
+
+$ wget https://developer.download.nvidia.com/compute/cuda/repos/wsl-ubuntu/x86_64/cuda-wsl-ubuntu.pin
+$ sudo mv cuda-wsl-ubuntu.pin /etc/apt/preferences.d/cuda-repository-pin-600
+$ wget https://developer.download.nvidia.com/compute/cuda/12.4.0/local_installers/cuda-repo-wsl-ubuntu-12-4-local_12.4.0-1_amd64.deb
+$ sudo dpkg -i cuda-repo-wsl-ubuntu-12-4-local_12.4.0-1_amd64.deb
+$ sudo cp /var/cuda-repo-wsl-ubuntu-12-4-local/cuda-*-keyring.gpg /usr/share/keyrings/
+$ sudo apt-get update
+$ sudo apt-get -y install cuda-toolkit-12-4
+
+If there are no errors then cuda is installed, however not in the
+path.
+
+$ export PATH=/usr/local/cuda/bin${PATH:+:${PATH}}
+$ export LD_LIBRARY_PATH=/usr/local/cuda/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
+
+Next, compile FEHD.
+
+$ git clone https://github.com/jddrvr/FEHD_cuda.git
+$ cd FEHD_cuda
+$ make
+$ sudo mv FEHD /usr/local/bin/
+
+Now, use FEHD.
+
+$ cd examples
+$ 

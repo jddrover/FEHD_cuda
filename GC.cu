@@ -173,8 +173,7 @@ void granger(float *ARdev, std::vector<float> angleArray, std::vector<float> &GC
   cusolverDnCheevjBatched(cusolverH,jobz,uplo,numComps-1,Spartial,numComps-1,
 			  dev_W, d_work2,lwork,d_info, syevj_params, params.numFreqs*params.numParticles);
   prodEigs<<<gridSizeProd,blockSizeProd,memsizeEig>>>(dev_W, det_partial, numComps-1, params.numParticles, params.numFreqs);      
-  //  }
-
+  
   det2GC<<<gridSize_det2GC,blockSize_det2GC>>>(det_partial, det_whole, dev_GC,params.numParticles,params.numFreqs);
 
   cudaMemcpy(GCvals.data(),dev_GC,sizeof(float)*params.numParticles,cudaMemcpyDeviceToHost);
