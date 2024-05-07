@@ -22,5 +22,5 @@ Use:
 
 
 
-pull requests are welcome. Really. 
+pull requests are welcome.  
 
