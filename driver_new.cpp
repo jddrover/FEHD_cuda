@@ -16,8 +16,17 @@ int main(int argc, char** argv)
   // This function will read the given command line arguments
   // and uses widgets to get the remaining information.
   // The widgets aren't going to work for anyone but me.
-  setUpParameters(argc,argv,params);
-
+  try
+    {
+      setUpParameters(argc,argv,params);
+    }
+  
+  catch (std::invalid_argument e)
+    {
+      std::cerr << e.what() << std::endl;
+      return -1;
+    }
+  
   if(params.verbose)
     {
       printf("Verbosity selected \n");
