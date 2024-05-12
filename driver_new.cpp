@@ -10,40 +10,42 @@
 int main(int argc, char** argv)
 {
 
-  // This will hold all of the parameter values.
+  // The paramContainer object contains all of the analysis parameters
+  // such as sampling rate and the number of particles for the optimizer.
   paramContainer params;
-  // Determine parameters
-  // This function will read the given command line arguments
-  // and uses widgets to get the remaining information.
-  // The widgets aren't going to work for anyone but me.
+  // The setUpParameters call fills the params object. If it is not
+  // completely filled an exception is thrown and execution is terminated.
   try
     {
       setUpParameters(argc,argv,params);
     }
-  
+  // If there was a problem above (ie missing argument), the exception is
+  // noted here, and execution is temrinated with an error message. 
   catch (std::invalid_argument e)
     {
       std::cerr << e.what() << std::endl;
       return -1;
     }
   
-  if(params.verbose)
-    {
-      printf("Verbosity selected \n");
-    }
+  //if(params.verbose)
+  //  {
+  //    printf("Verbosity selected \n");
+  //  }
   // Load the data from the file into "dataArray"
 
-  
+  // Declare a dataArray object.
+  // This doesn't make much sense here. This data structure makes sense elsewhere.
   dataList dataArray;
-  // Rewrite this definition to just take the two arguments.
+  // Load the data from file to memory.
   loadFile(params.filename, params.numChannels, params.numEpochs, params.epochPts, dataArray);
 
+  // If the laglist was given in a file, take care of that here.
   if(params.lagListFLAG == 1)
     {
       loadLagList(params);
       params.numLags = params.lagList.size();
     }
-  else
+  else // In the event it wasn't it just assigns a sequence up to the numLags parameter.
     {
       for(int lag=0;lag<params.numLags;lag++)
 	params.lagList.push_back(lag+1);
@@ -52,7 +54,7 @@ int main(int argc, char** argv)
   // Compute the principal components and discard unused components.
   // We also need the transformation matrix that generates the principal components. 
   // Each of these should have params.numPCs rows.
-  // Future option is to skip pca and put the data as-is into the FEHD algorithm.
+
   dataList PC;
   matrix Lmat;
 
@@ -73,9 +75,9 @@ int main(int argc, char** argv)
   removeMultipleComponents(PC,compsToRemove);
 
   // Run FEHD on the principal components.
-  
+  // This is where the algorithm begins on the principal components determined above. 
   runFEHD(PC, LmatTrimmed, params);
-
+  // Write the transformation matrix to file. 
   writeOutput(LmatTrimmed.data(), params);
     
   return 0;

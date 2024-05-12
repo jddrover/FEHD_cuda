@@ -12,7 +12,7 @@ void setUpParameters(int argc,char** argv,paramContainer &params)
 
   setFLAGStoZero(params);
 
-  printf("number of args: %i \n",argc);
+  // printf("number of args: %i \n",argc);
 
   params.verbose = false;
   
@@ -24,81 +24,81 @@ void setUpParameters(int argc,char** argv,paramContainer &params)
 	}
       if(std::string(argv[i]) == "-filename")
 	{
-	  printf("Filename option specified \n");
+	  //printf("Filename option specified \n");
 	  params.filename = std::string(argv[i+1]);
 	  params.filenameFLAG = 1; 
 	}
       if(std::string(argv[i]) == "-lagList")
 	{
-	  printf("Reading lag list from file \n");
+	  //printf("Reading lag list from file \n");
 	  params.lagListFilename = std::string(argv[i+1]);
 	  params.numLagsFLAG = 1;
 	  params.lagListFLAG = 1;
 	}
       if(std::string(argv[i]) == "-sampRate")
 	{
-	  printf("Sampling rate specified \n");
+	  //printf("Sampling rate specified \n");
 	  params.sampRate = std::stoi(std::string(argv[i+1]));
 	  params.sampRateFLAG = 1;
 	}
       if(std::string(argv[i]) == "-numChannels")
 	{
-	  printf("number of channels specified \n");	
+	  //printf("number of channels specified \n");	
 	  params.numChannels = std::stoi(std::string(argv[i+1]));
 	  params.numChannelsFLAG = 1;
 	}
       if(std::string(argv[i]) == "-epochPts")
 	{
-	  printf("number of points per epoch specified \n");
+	  //printf("number of points per epoch specified \n");
 	  params.epochPts = std::stoi(std::string(argv[i+1]));
 	  params.epochPtsFLAG = 1;
 	}
       if(std::string(argv[i]) == "-numEpochs")
 	{
-	  printf("number of epochs specified \n");
+	  //printf("number of epochs specified \n");
 	  std::cout << "This quantity is computed automatically" << std::endl;
 	  //params.numEpochs = std::stoi(std::string(argv[i+1]));
 	  //params.numEpochsFLAG = 1;
 	}
       if(std::string(argv[i]) == "-numPCs")
 	{
-	  printf("number of PCs specified \n");
+	  //printf("number of PCs specified \n");
 	  params.numPCs = std::stoi(std::string(argv[i+1]));
 	  params.numPCsFLAG = 1;
 	}
       if(std::string(argv[i]) == "-numLags")
 	{
-	  printf("number of lags specified \n");
+	  //printf("number of lags specified \n");
 	  params.numLags = std::stoi(std::string(argv[i+1]));
 	  params.numLagsFLAG = 1;
 	}
       if(std::string(argv[i]) == "-numParticles")
 	{
-	  printf("number of particles specified \n");
+	  //printf("number of particles specified \n");
 	  params.numParticles = std::stoi(std::string(argv[i+1]));
 	  params.numParticlesFLAG = 1;
 	}
       if(std::string(argv[i]) == "-freqLo")
 	{
-	  printf("low frequency specified \n");
+	  //printf("low frequency specified \n");
 	  params.freqLo = std::stof(std::string(argv[i+1]));
 	  params.freqLoFLAG = 1;
 	}
       if(std::string(argv[i]) == "-freqHi")
 	{
-	  printf("high frequency specified \n");
+	  //printf("high frequency specified \n");
 	  params.freqHi = std::stof(std::string(argv[i+1]));
 	  params.freqHiFLAG = 1;
 	}
       if(std::string(argv[i]) == "-numFreqs")
 	{
-	  printf("number of frequencies specified \n");
+	  //printf("number of frequencies specified \n");
 	  params.numFreqs = std::stoi(std::string(argv[i+1]));
 	  params.numFreqsFLAG = 1;
 	}
       if(std::string(argv[i]) == "-outfolder")
 	{
-	  std::cout << "directory for output chosen" << std::endl;
+	  //std::cout << "directory for output chosen" << std::endl;
 	  params.outfolder = std::string(argv[i+1]);
 	  params.outfolderFLAG = 1;
 	}
