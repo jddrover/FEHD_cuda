@@ -20,21 +20,15 @@ int main(int argc, char** argv)
       setUpParameters(argc,argv,params);
     }
   // If there was a problem above (ie missing argument), the exception is
-  // noted here, and execution is temrinated with an error message. 
+  // noted here, and execution is terminated with an error message. 
   catch (std::invalid_argument e)
     {
       std::cerr << e.what() << std::endl;
       return -1;
     }
   
-  //if(params.verbose)
-  //  {
-  //    printf("Verbosity selected \n");
-  //  }
-  // Load the data from the file into "dataArray"
-
   // Declare a dataArray object.
-  // This doesn't make much sense here. This data structure makes sense elsewhere.
+  // This is mine. It isn't a great fit here, but it does work for other purposes.
   dataList dataArray;
   // Load the data from file to memory.
   loadFile(params.filename, params.numChannels, params.numEpochs, params.epochPts, dataArray);
