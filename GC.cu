@@ -43,10 +43,12 @@ void granger(float *ARdev, std::vector<float> angleArray, std::vector<float> &GC
 
   
   
-
+  // cublas handle. Contains info about the system that routines need.
   cublasHandle_t cublasH = 0;
   cublasCreate(&cublasH);
 
+  // cusolver options - don't sort, don't compute eigenvectors, use the upper triangle
+  // the matrix is Hermitian
   const int sort_eig = 0;
   const cusolverEigMode_t jobz = CUSOLVER_EIG_MODE_NOVECTOR;
   const cublasFillMode_t uplo = CUBLAS_FILL_MODE_UPPER;
@@ -68,7 +70,6 @@ void granger(float *ARdev, std::vector<float> angleArray, std::vector<float> &GC
 
   int grdsize2 = (int)(numComps*numComps*params.numLags*params.numParticles+blksize-1)/blksize; 
   const dim3 gridSize2(grdsize2);
-
 
   int grdsize3 = (int)(numComps*numComps*params.numParticles*params.numFreqs+blksize-1)/blksize;
   const dim3 blockSizeTF(blksize);
@@ -104,11 +105,27 @@ void granger(float *ARdev, std::vector<float> angleArray, std::vector<float> &GC
   cudaMemcpy(angles_dev,angleArray.data(),sizeof(float)*(numComps-1)*params.numParticles,
 	     cudaMemcpyHostToDevice);
 
+
+  // Using the angles in angles_dev, create the rotation matrices Q.
   generateRotationMatrices<<<gridSize,blockSize>>>(angles_dev,Qdev,numComps,params.numParticles);
+  // Create
+  // [A1^tQ1* A1^tQ2* ... A1^tQp*]
+  // [A2^tQ1* ...                ]
+  // [...                        ]
+  // [AL^tQ1* ...     ... AL^tQp*]
   cublasSgemm(cublasH,CUBLAS_OP_T,CUBLAS_OP_N,numComps*params.numLags,numComps*params.numParticles,
   	      numComps,&alpha,ARdev,numComps,Qdev,numComps,&beta,rotatedModels,
 	      numComps*params.numLags);
+  // Transpose each individual lag matrix
+  // [Q1A1 Q2A1 ... ... QpA1]
+  // [Q1A2 ...              ]
+  // [...                   ]
+  // [Q1AL ...  ... ... QpAL]
   transposeBlockMatrices<<<gridSize2,blockSize>>>(rotatedModels,workArray,numComps,params.numParticles,params.numLags);
+  // Multiply, strided
+  // [Q1A1]     [Q2A1]    ... [QpA1]
+  // [ ...]Q1*  [... ]Q2* ... [... ]Qp*
+  // [Q1AL]     [Q2AL]    ... [QpAL]
   cublasSgemmStridedBatched(cublasH,CUBLAS_OP_N,CUBLAS_OP_N,
 			    params.numLags*numComps,numComps,numComps,
 			    &alpha,
@@ -117,10 +134,15 @@ void granger(float *ARdev, std::vector<float> angleArray, std::vector<float> &GC
 			    &beta,
 			    rotatedModels,numComps*params.numLags,params.numLags*numComps*numComps,
 			    params.numParticles);
+  // Compute the inverse of the transfer function - numParticles * numFreqs complex matrices
+  // [Tfp1f1^-1, Tfp1f2^-1, ... , Tfp1fF^-1, Tfp2f1^-1, ... TfppfF^-1]
+  // See the function in kernels.cu for the details on how it works.
   compTransferFunc<<<gridSizeTF,blockSizeTF,memsizetf>>>(rotatedModels,Tf,lagList_DEVICE,numComps,
 						       params.numParticles,params.freqLo,
 						       params.freqHi,params.numFreqs,
 						       params.numLags,dt);
+  // Compute (Tf Tf*)^-1=Tf*^-1 Tf^-1 - the inverse of the variance in the neighborhood of each frequency
+  // Collectively the inverse power spectrum of the model. 
   cublasCgemmStridedBatched(cublasH,CUBLAS_OP_C,CUBLAS_OP_N,
 				   numComps,numComps,numComps,
 				   &alphaC,
@@ -129,9 +151,22 @@ void granger(float *ARdev, std::vector<float> angleArray, std::vector<float> &GC
 				   &betaC,
 				   Swhole,numComps,numComps*numComps,
 				   params.numParticles*params.numFreqs);
+
+  // Our first goal is to obtain the sub m-1 x m-1 spectral matrix for each frequency.
+  // We have avoided inversion, so we don't have the spectral matrix, we have its inverse.
+  // Consider the block matrix inverse:
+  // [A  B]^-1   [[A-CB/D]^-1 X]
+  // [    ]    = [             ]
+  // [C  D]      [ X          X]
+  // This is the inverse of the spectral sub matrix. We're going to calculate its determinant, so
+  // we will not need to invert it.
+  // This function scales the mth column (B) in each submatrix by the m,m entry.
+  // This is preparation for the gemm below. 
   scale_columns<<<gridSizeScale,blockSizeTF>>>(Swhole,numComps,params.numParticles,params.numFreqs);
+  // Copy the entire spectral matrix to a temporary array (not really temporary)
   cublasCcopy(cublasH,params.numParticles*params.numFreqs*numComps*numComps,
 	      Swhole,1,tmp,1);
+  // GEMM does the above calculation.
   cublasCgemmStridedBatched(cublasH,CUBLAS_OP_N,CUBLAS_OP_N,
 				   numComps-1,numComps-1,1,
 				   &alphaC2,
@@ -140,12 +175,17 @@ void granger(float *ARdev, std::vector<float> angleArray, std::vector<float> &GC
 				   &betaC2,
 				   tmp,numComps,numComps*numComps,
 				   params.numParticles*params.numFreqs);
+  // Copy back to Swhole array
   cublasCcopy(cublasH,params.numParticles*params.numFreqs*numComps*numComps,
 	      tmp,1,Swhole,1);
-  scale_columns<<<gridSizeScale,blockSizeTF>>>(Tf,numComps,params.numParticles,params.numFreqs);
 
+  // Same trick, but we need the product of the sub-transfer functions.
+  // We determine the sub-inverse as above, first by scaling:
+  scale_columns<<<gridSizeScale,blockSizeTF>>>(Tf,numComps,params.numParticles,params.numFreqs);
+  // Then copying to a temporary array
   cublasCcopy(cublasH,params.numParticles*params.numFreqs*numComps*numComps,
 	      Tf,1,tmp,1);
+  // Now we have the inverses of the sub transfer functions.
   cublasCgemmStridedBatched(cublasH,CUBLAS_OP_N,CUBLAS_OP_N,
 				   numComps-1,numComps-1,1,
 				   &alphaC2,
@@ -155,6 +195,7 @@ void granger(float *ARdev, std::vector<float> angleArray, std::vector<float> &GC
 				   tmp,numComps,numComps*numComps,
 				   params.numParticles*params.numFreqs);
 
+  // And we multiply them to get the spectrum without the influence of the last component.
   cublasCgemmStridedBatched(cublasH,CUBLAS_OP_C,CUBLAS_OP_N,
 				   numComps-1,numComps-1,numComps-1,
 				   &alphaC,
@@ -163,21 +204,23 @@ void granger(float *ARdev, std::vector<float> angleArray, std::vector<float> &GC
 				   &betaC,
 				   Spartial,numComps-1,(numComps-1)*(numComps-1),
 				   params.numParticles*params.numFreqs);
-
+  // Cheev batched doesn't stride, so I shrink the whole spectrum arrays to the m-1 x m-1 size. 
   shrinkArrays<<<gridSizeShrink,blockSizeShrink>>>(Swhole, d_wholeSpec, numComps, params.numParticles, params.numFreqs);
-
+  // Cholesky algorithm to determine the eigenvalues (we set it not to compute eigenvectors, it can)
   cusolverDnCheevjBatched(cusolverH,jobz,uplo,numComps-1,d_wholeSpec,numComps-1,
 			  dev_W, d_work2,lwork,d_info, syevj_params, params.numFreqs*params.numParticles);
+  // Multiply the eigenvalues together to get the determinant. 
   prodEigs<<<gridSizeProd,blockSizeProd,memsizeEig>>>(dev_W, det_whole, numComps-1, params.numParticles, params.numFreqs);
-  
+  // Repeat for the partial spectral matrices. 
   cusolverDnCheevjBatched(cusolverH,jobz,uplo,numComps-1,Spartial,numComps-1,
 			  dev_W, d_work2,lwork,d_info, syevj_params, params.numFreqs*params.numParticles);
+  // Compute the determinant.
   prodEigs<<<gridSizeProd,blockSizeProd,memsizeEig>>>(dev_W, det_partial, numComps-1, params.numParticles, params.numFreqs);      
-  
+  // Divides the determinants, takes the log, and adds to the integral. 
   det2GC<<<gridSize_det2GC,blockSize_det2GC>>>(det_partial, det_whole, dev_GC,params.numParticles,params.numFreqs);
-
+  // Send the numParticles Granger causality values to the system memory.
   cudaMemcpy(GCvals.data(),dev_GC,sizeof(float)*params.numParticles,cudaMemcpyDeviceToHost);
-
+  // Clean up (if you don't memory will leak).
   cusolverDnDestroy(cusolverH);
   cublasDestroy(cublasH);
   cudaFree(angles_dev);
