@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <cuComplex.h>
 
+// Transpose individual block matrices. 
 __global__
 void transposeBlockMatrices(float *A, float *B, int M, int P, int L)
 {
@@ -24,6 +25,7 @@ void transposeBlockMatrices(float *A, float *B, int M, int P, int L)
   return; 
 }
 
+// Angles as input, determine the rotation matrix for each particle.
 __global__
 void generateRotationMatrices(float *angleVars,float *Q_Array,int M,int numParticles){
 
@@ -78,7 +80,7 @@ void generateRotationMatrices(float *angleVars,float *Q_Array,int M,int numParti
     }
   return;
 }
-
+// Computes the inverse of the transfer function. 
 __global__
 void compTransferFunc(float *ARmodels,float2 *Tf,int *lagList,int numComps,int numParticles,float fMin,float fMax,int numFreqs,int numLags,float deltaT){
 
@@ -133,7 +135,7 @@ void compTransferFunc(float *ARmodels,float2 *Tf,int *lagList,int numComps,int n
    
   return;
 }
-
+// Scale the last column of many matrices. 
 __global__
 void scale_columns(float2 *TF,int numComps, int numParticles, int numFreqs)
 {
@@ -157,7 +159,8 @@ void scale_columns(float2 *TF,int numComps, int numParticles, int numFreqs)
 
   return;
 }
-
+// Shrinks an array of matrices so that the matrices size decreases by one.
+// Simply removes the last column and row of each matrix.
 __global__
 void shrinkArrays(float2 *S1, float2 *S2, int numComps, int numParticles, int numFreqs)
 {
@@ -177,7 +180,7 @@ void shrinkArrays(float2 *S1, float2 *S2, int numComps, int numParticles, int nu
 
   return;
 }
-
+// Multiplies eigenvalues together to get determinant.
 __global__
 void prodEigs(float *W, float *det, int numComps, int numParticles, int numFreqs)
 {
