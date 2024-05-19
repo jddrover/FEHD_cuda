@@ -10,9 +10,7 @@
 #include <chrono>
 #include <cblas.h>
 #include "timeSeriesOPs.h"
-
-
-
+// Main call. Executes the FEHD algorithm
 void runFEHD(dataList dataArray, std::vector<float> &Lmat, paramContainer params)
 {
   // Set the parameters for sgemm. 
@@ -27,17 +25,18 @@ void runFEHD(dataList dataArray, std::vector<float> &Lmat, paramContainer params
   std::vector<float> oneArrayData; // Holds the data without epoch boundaries.
   std::vector<float> transformedData; // Holds the new data without epoch boundaries.  
   std::vector<float> newTrans(params.numPCs*params.numChannels); // Another worker.
-
+  // Start at numPCs, work down to 2, removing (straight up, it is now an n-1 dimensional system)
+  // the least causal component at each stage.
   for(int numComps = params.numPCs;numComps>1;numComps--)
     {
       
       Rdecor.elements.clear();
       bestAngle.resize(numComps-1);
-      
+      // Find the angle that results smallest upward causality.
       runFEHDstep(bestAngle, Rdecor, dataArray, params, numComps);
-             
+      // Local Q, going to assemble from the angles.
       Q.resize(numComps*numComps);
-
+      
       singleQ(Q,bestAngle);
 
       std::fill(T.begin(),T.end(), 0.0f);
