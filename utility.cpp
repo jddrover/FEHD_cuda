@@ -5,7 +5,6 @@
 #include <time.h>
 #include "utility.h"
 
-
 namespace fs = std::experimental::filesystem;
 void setUpParameters(int argc,char** argv,paramContainer &params)
 {
