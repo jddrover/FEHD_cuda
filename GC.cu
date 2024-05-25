@@ -15,11 +15,15 @@
 #include "cuda.h"
 #include "cuda_runtime_api.h"
 
-void granger(float *ARdev, std::vector<float> angleArray, std::vector<float> &GCvals, paramContainer params, int numComps,int *lagList_DEVICE,
-	     float *Qdev,float *rotatedModels,float *workArray,float2 *Tf,float2 *Swhole,float2 *tmp,float2 *Spartial,float2 *d_wholeSpec,
-	     float *dev_W,int *d_info,int &lworkVal,float2 *d_work2,float *det_whole,float *det_partial,float *dev_GC)
+void granger(float *ARdev, std::vector<float> angleArray,
+	     std::vector<float> &GCvals, paramContainer params, int
+	     numComps,int *lagList_DEVICE, float *Qdev,float
+	     *rotatedModels,float *workArray,float2 *Tf,float2
+	     *Swhole,float2 *tmp,float2 *Spartial,float2 *d_wholeSpec,
+	     float *dev_W,int *d_info,int &lworkVal,float2
+	     *d_work2,float *det_whole,float *det_partial,float
+	     *dev_GC)
 {
-
   int blksize = 1024;
   int grdsize = (int)(params.numParticles+blksize-1)/blksize;
   const dim3 blockSize(blksize);
@@ -47,8 +51,8 @@ void granger(float *ARdev, std::vector<float> angleArray, std::vector<float> &GC
   cublasHandle_t cublasH = 0;
   cublasCreate(&cublasH);
 
-  // cusolver options - don't sort, don't compute eigenvectors, use the upper triangle
-  // the matrix is Hermitian
+  // cusolver options - don't sort, don't compute eigenvectors, use
+  // the upper triangle the matrix is Hermitian
   const int sort_eig = 0;
   const cusolverEigMode_t jobz = CUSOLVER_EIG_MODE_NOVECTOR;
   const cublasFillMode_t uplo = CUBLAS_FILL_MODE_UPPER;
@@ -64,24 +68,35 @@ void granger(float *ARdev, std::vector<float> angleArray, std::vector<float> &GC
   // [A_1TQ1T  ... A_1TQPT]
   // [...                 ]
   // [A_LTQ2T  ... A_LTQPT]
-  // Recall Q was stored as transposed matrices, so we use the following gemm call to do all particles and lags at once.
+
+  // Recall Q was stored as transposed matrices, so we use the
+  // following gemm call to do all particles and lags at once.
+
   const float alpha=1.0;
   const float beta=0.0;
 
-  int grdsize2 = (int)(numComps*numComps*params.numLags*params.numParticles+blksize-1)/blksize; 
+  int grdsize2 =
+  (int)(numComps*numComps*params.numLags*params.numParticles+blksize-1)/blksize; 
+
   const dim3 gridSize2(grdsize2);
 
-  int grdsize3 = (int)(numComps*numComps*params.numParticles*params.numFreqs+blksize-1)/blksize;
+  int grdsize3 =
+  (int)(numComps*numComps*params.numParticles*params.numFreqs+blksize-1)/blksize;
+
   const dim3 blockSizeTF(blksize);
   const dim3 gridSizeTF(grdsize3);
   const int memsizetf = sizeof(float2)*blksize;
   float dt = 1.0f/(float)(params.sampRate);
 
-  int grdsize4 = (int)((numComps*params.numFreqs*params.numParticles+blksize-1)/blksize);
+  int grdsize4 =
+  (int)((numComps*params.numFreqs*params.numParticles+blksize-1)/blksize);
+
   const dim3 gridSizeScale(grdsize4);
 
 
-  int grdsize5 = (int)(params.numParticles*params.numFreqs*(numComps-1)*(numComps-1)+blksize-1)/blksize;
+  int grdsize5 =
+  (int)(params.numParticles*params.numFreqs*(numComps-1)*(numComps-1)+blksize-1)/blksize;
+
   const dim3 blockSizeShrink(blksize);
   const dim3 gridSizeShrink(grdsize5);
 
@@ -102,6 +117,7 @@ void granger(float *ARdev, std::vector<float> angleArray, std::vector<float> &GC
   // Create an array and allocate space on the device to store the rotation matrices
   float *angles_dev;
   cudaMalloc((void**)&angles_dev, sizeof(float)*(numComps-1)*params.numParticles);
+
   cudaMemcpy(angles_dev,angleArray.data(),sizeof(float)*(numComps-1)*params.numParticles,
 	     cudaMemcpyHostToDevice);
 
