@@ -136,7 +136,7 @@ void setUpParameters(int argc,char** argv,paramContainer &params)
 
   if(params.numPointsFLAG == 0 || params.numChannelsFLAG == 0)
     {
-      std::cout << "Determining channels and time points from file size" << std::endl;
+      //std::cout << "Determining channels and time points from file size" << std::endl;
       // I use the system command wc to do this.
       char numPointsstr[100];
 
