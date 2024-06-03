@@ -113,8 +113,8 @@ void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList 
   std::vector<float> A_result(numLags*numComps*numComps,0);
   cudaMemcpy(A_result.data(),RHScov_DEVICE,sizeof(float)*numComps*numComps*numLags,cudaMemcpyDeviceToHost);
 
-  const float alphaRes = 1.0f;
-  const float betaRes = -1.0f;
+  const float alphaRes = -1.0f;
+  const float betaRes = 1.0f;
   
   cublasSgemm(cublasH,CUBLAS_OP_T,CUBLAS_OP_N,numComps,kval,mval,
 	      &alphaRes, RHScov_DEVICE, mval, LHSvec_DEVICE, mval,
