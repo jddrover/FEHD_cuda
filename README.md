@@ -19,7 +19,7 @@ put it in your path.
 Requires: cublas, cusolver, blas, lapacke
 
 Use:
-FEHD -filename <data filename> -sampRate <sampling rate of data> -epochPts <time points in an epoch or trial> -numPCs <number of principal components to use> -numLags <number of lags in the AR model> -freqLo <low freq bound> -freqHi <high freq bound> -numFreqs <how many freqs to evaluate> -numParticles <number of solvers in parallel> -outfolder <where to put the output>
+FEHD -filename yourfilename -sampRate samp -epochPts points_per_trial_or_epoch -numPCs number_of_PCs_to_use -numLags ARlags -freqLo low_freq_bound -freqHi high_freq_bound -numFreqs number_of_freqs_evaluate -numParticles number_solvers -outfolder where_to_put_output
 
 
 
