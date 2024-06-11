@@ -31,12 +31,27 @@ int main(int argc, char** argv)
   // This is mine. It isn't a great fit here, but it does work for other purposes.
   dataList dataArray;
   // Load the data from file to memory.
-  loadFile(params.filename, params.numChannels, params.numEpochs, params.epochPts, dataArray);
-
+  try
+    {
+      loadFile(params.filename, params.numChannels, params.numEpochs, params.epochPts, dataArray);
+    }
+  catch (std::runtime_error e)
+    {
+      std::cerr << e.what() << std::endl;
+      return -1;
+    }
   // If the laglist was given in a file, take care of that here.
   if(params.lagListFLAG == 1)
     {
-      loadLagList(params);
+      try
+	{
+	  loadLagList(params);
+	}
+      catch(std::runtime_error e)
+	{
+	  std::cerr << e.what() << std::endl;
+	  return -1;
+	}
       params.numLags = params.lagList.size();
     }
   else // In the event it wasn't it just assigns a sequence up to the numLags parameter.

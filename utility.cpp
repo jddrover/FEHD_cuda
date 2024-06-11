@@ -25,6 +25,13 @@ void setUpParameters(int argc,char** argv,paramContainer &params)
 	{
 	  //printf("Filename option specified \n");
 	  params.filename = std::string(argv[i+1]);
+	  // Try to open this
+	  std::ifstream tester(params.filename.c_str(),std::ifstream::in);
+	  if(!tester.is_open())
+	    {
+	      throw std::invalid_argument("Data file not found. Exiting.");
+	      return;
+	    }
 	  params.filenameFLAG = 1; 
 	}
       if(std::string(argv[i]) == "-lagList")
@@ -414,14 +421,20 @@ void printMatrixfloat(float *M, int lda, int numRows, int numCols)
 void loadLagList(paramContainer &params)
 {
   std::ifstream dStream(params.lagListFilename.c_str(),std::ifstream::in);
-  
-  int tmpVal;
-  while(dStream.good())
+  if(!dStream.is_open())
     {
-      dStream >> tmpVal;
-      params.lagList.push_back(tmpVal);// Something is going on here where a carriage return at the
-    }                                        // end of a laglist causes a crash.
-  
+      //std::cerr << "Laglist file not found\n";
+      throw std::runtime_error("Laglist file not found. Exiting");
+    }
+  else
+    {
+      int tmpVal;
+      while(dStream.good())
+	{
+	  dStream >> tmpVal;
+	  params.lagList.push_back(tmpVal);
+	}                                        
+    }
   dStream.close();
 
   return;

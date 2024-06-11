@@ -44,9 +44,13 @@ void loadFile(std::string filename,int numComps,int numEpochs,int epochPts,dataL
 	  dataSet.epochArray.push_back(epochtmp);
 	  epochtmp.timePointArray.clear();
 	}
+      dStream.close();
+      dataSet.numEpochs=numEpochs;
     }
-  dStream.close();
-  dataSet.numEpochs=numEpochs;
+  else
+    throw std::runtime_error("Datafile not found");
+  
+  
 }
 
 void removeEpoch(dataList &DS,int epochToRemove)
