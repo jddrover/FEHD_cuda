@@ -32,6 +32,7 @@ void setUpParameters(int argc,char** argv,paramContainer &params)
 	      throw std::invalid_argument("Data file not found. Exiting.");
 	      return;
 	    }
+	  tester.close();
 	  params.filenameFLAG = 1; 
 	}
       if(std::string(argv[i]) == "-lagList")
