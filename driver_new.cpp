@@ -40,7 +40,13 @@ int main(int argc, char** argv)
       std::cerr << e.what() << std::endl;
       return -1;
     }
-  // If the laglist was given in a file, take care of that here.
+
+  // Remove the mean of each channel, epoch by epoch.
+  // details in timeSeriesOPs.h
+
+  removeMean(dataArray);
+
+  // If the laglist was given in a file, load the file.
   if(params.lagListFLAG == 1)
     {
       try

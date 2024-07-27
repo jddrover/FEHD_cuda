@@ -11,6 +11,5 @@ void convertRawArrayToDataList(float *rawArray,dataList &DL,int numComps,int epo
 void PCA(dataList DS,dataList &PC, matrix &Tm);
 void removeComponent(dataList &,int);
 void removeMultipleComponents(dataList &,std::vector<int> compsToRemove);
-float computeDeterminant(std::vector<float>, bool);
-void generateNextLagList(std::vector<int> &);
+void removeMean(dataList &);
 #endif

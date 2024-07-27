@@ -238,160 +238,30 @@ void removeMultipleComponents(dataList &DL,std::vector<int> compsToRemove)
       removeComponent(DL,compsToRemove[comp]-comp);
     }
 }
-/*
-void mkAR(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList &R)
+
+void removeMean(dataList &DL)
 {
-  int numEpochs = dataArray.epochArray.size();
-  int epochPts = dataArray.epochArray[0].timePointArray.size();
-  int numComps = dataArray.epochArray[0].timePointArray[0].dataVector.size();
-  int numPoints = numEpochs*epochPts;
-  
-  matrix LHS;
-  matrix RHS;
+  // Get the size of things.
+  int epochPts = DL.epochArray[0].timePointArray.size();
+  int numComps = DL.epochArray[0].timePointArray[0].dataVector.size();
+  int numEpochs = DL.epochArray.size();
 
-  // We want maxLag, not numLags
-  
-  int maxLag = *std::max_element(lagList.begin(),lagList.end());
-  int tpoint;
-  // Sort the lag list in reverse order, so everything matches up without changing a lot.
-
-  std::sort(lagList.begin(),lagList.end(), std::greater<int>());
-  
+  std::vector<float> sums(numComps*numEpochs,0);
+  const float alpha = 1.0/((float) epochPts);
   for(int epoch=0;epoch<numEpochs;epoch++)
-      {
-      for(int tp=maxLag;tp<epochPts;tp++)
+    {
+      for(int timePoint=0;timePoint<epochPts;timePoint++)
 	{
-	  RHS.elements.insert(RHS.elements.end(),
-			      dataArray.epochArray[epoch].timePointArray[tp].dataVector.begin(),
-			      dataArray.epochArray[epoch].timePointArray[tp].dataVector.end());
+	  cblas_saxpy(numComps,alpha,DL.epochArray[epoch].timePointArray[timePoint].dataVector.data(),1,
+		      sums.data()+epoch*numComps,1);
 	}
-
-      for(int tp=0;tp<epochPts-maxLag;tp++)
+      for(int timePoint=0;timePoint<epochPts;timePoint++)
 	{
-	  for(int lagIndx=0;lagIndx<lagList.size();lagIndx++)
-	    {
-	      tpoint = tp + maxLag-lagList[lagIndx];
-	      LHS.elements.insert(LHS.elements.end(),
-				  dataArray.epochArray[epoch].timePointArray[tpoint].dataVector.begin(),
-				  dataArray.epochArray[epoch].timePointArray[tpoint].dataVector.end());
-	    }
+	  cblas_saxpy(numComps,-1.0,sums.data()+epoch*numComps,1,
+		      DL.epochArray[epoch].timePointArray[timePoint].dataVector.data(),1);
 	}
-
-      }
-
-  // Make some copies (probably some of them are unnecessary.
-  std::vector<float> LHSvec(LHS.elements);
-  std::vector<float> RHSvec(RHS.elements);
-  std::vector<float> LHSvecBAK(LHS.elements);
-  std::vector<float> RHSvecBAK(RHS.elements);
-
-  int numLags = lagList.size();
-  
-  int mval = numLags*numComps;
-  int nval = numLags*numComps;
-  int kval = (epochPts-maxLag)*numEpochs;
-
-  const float alpha = 1.0f;
-  const float beta = 0.0f;
-
-  float *LHScov = new float[numComps*numLags*numComps*numLags];
-  float *RHScov = new float[numComps*numLags*numComps];
-
-  cblas_sgemm(CblasColMajor, CblasNoTrans, CblasTrans,
-	      mval, nval, kval, alpha, LHSvec.data(), mval, LHSvec.data(), mval, beta, LHScov, mval);
-  cblas_sgemm(CblasColMajor, CblasNoTrans, CblasTrans,
-	      mval, numComps, kval, alpha, LHSvec.data(), mval, RHSvec.data(), numComps, beta, RHScov, mval);
-
-  // Solve LHScov*A=RHScov for A
-
-  int info;
-  int IPIV[numComps*numLags];
-  
-  info=LAPACKE_ssysv(LAPACK_COL_MAJOR, 'U', numComps*numLags, numComps, LHScov, numComps*numLags,IPIV,
-		     RHScov,numComps*numLags);
-
-  matrix lagTmp;
-
-  for(int lag=numLags-1;lag>=0;lag--)
-    {
-      for(int col=0;col<numComps;col++)
-	for(int row=0;row<numComps;row++)
-	  {
-	    // Transpose and copy.
-	    lagTmp.elements.push_back(RHScov[row*numLags*numComps+col+lag*numComps]);
-	  }
-
-      A.lagMatrices.push_back(lagTmp);
-      lagTmp.elements.clear();
     }
-
-  // Compute the residuals.
-  float *modelvals = new float[numComps*(epochPts-numLags)*numEpochs];
-  cblas_sgemm(CblasColMajor, CblasTrans, CblasNoTrans,
-	      numComps,kval,mval,alpha,RHScov,mval,LHSvecBAK.data(),mval,beta,modelvals,numComps);
-  const float alphaneg = -1.0f;
-  int mval2 = RHS.elements.size();
-  cblas_saxpy(mval2, alphaneg, modelvals, 1, RHSvecBAK.data(), 1);
-  convertRawArrayToDataList(RHSvecBAK.data(), R, numComps, epochPts-maxLag, numEpochs);
-  
-  delete [] modelvals;
-  delete [] RHScov;
-  delete [] LHScov;
-  
-  
-  
-  return;
-}
-*/
-
-
-
-
-
-float computeDeterminant(std::vector<float> A, bool lessOne)
-{
-  int Mval = std::sqrt(A.size());
-  int lda = Mval;
-  if(lessOne)
-    {
-      Mval = Mval-1;
-    }
-  int info;
-  info = LAPACKE_spotrf(LAPACK_COL_MAJOR, 'U', Mval, A.data(), lda);
-  //printf("info = %i \n", info);
-  float determinant = 1.0f;
-
-  for(int row=0;row<Mval;row++)
-    {
-      determinant *= A[row*lda+row];
-      //printf("det = %e \n",determinant);
-    }
-
-  determinant = determinant*determinant;
-  return determinant;
-}
-
-void generateNextLagList(std::vector<int> &lagList)
-{
-
-  bool unique = false;
-  int lastVal;
-  while(!unique)
-    {
-      lastVal = lagList.back();
-      lagList.pop_back();
-      lagList.push_back(lastVal+1);
-      
-      std::vector<int> tmp(lagList);
-      std::sort(tmp.begin(),tmp.end());
-      std::vector<int>::iterator it;
-      it = std::unique(tmp.begin(),tmp.end());
-      tmp.resize(std::distance(tmp.begin(),it));
-      //printf("lagList size = %li, tmp size = %li \n",lagList.size(),tmp.size());
-      if(tmp.size()==lagList.size())
-	unique = true;
-      
-    }
+  //printf("first entry %f \n",sums[0]);
   
   return;
 }
