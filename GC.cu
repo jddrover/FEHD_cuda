@@ -411,7 +411,8 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
       granger(ARdev,angleArray[block],GCvals[block], paramsBLOCKED,numComps,lagList_DEVICE,Qdev,rotatedModels,workArray,Tf,Swhole,tmp,
 	      Spartial,d_wholeSpec,dev_W,d_info,lworkVal,d_work2,det_whole,det_partial,dev_GC);
     }
-    
+  // Here is the iterator - adjustments occur here.
+  // while STATIONARY_COUNT < COUNTMAX
   for(int iter=0;iter<numIts;iter++)
     {
       // Get a bunch of gradients
@@ -513,6 +514,8 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
       minBlockNumber = std::min_element(GCmin.begin(),GCmin.end())-GCmin.begin();
       allBlockMin = GCmin[minBlockNumber];
       allBlockParticle = minBlockNumber*particleBlockSize+GCminIndex[minBlockNumber];
+
+      
       
       if(params.verbose)
       	printf("iteration = %i, particle = %li, value = %e \n",
