@@ -288,7 +288,7 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
 
   std::vector<float> candidates(4,0);
   int minIndx;
-  float allBlockMin;
+  float allBlockMin=0.0;
 
   int minBlockNumber;
   // For recycling
@@ -413,7 +413,16 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
     }
   // Here is the iterator - adjustments occur here.
   // while STATIONARY_COUNT < COUNTMAX
-  for(int iter=0;iter<numIts;iter++)
+
+
+  int STATIONARY_COUNT = 0;
+  const int COUNTMAX = 5;
+
+  
+  
+  //for(int iter=0;iter<numIts;iter++)
+  int iter = 0;
+  while(STATIONARY_COUNT < COUNTMAX)
     {
       // Get a bunch of gradients
       for(int block=0;block<numBlocks;block++)
@@ -512,15 +521,20 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
 
       // Find the minimum over all of the blocks
       minBlockNumber = std::min_element(GCmin.begin(),GCmin.end())-GCmin.begin();
+      if(allBlockMin <= GCmin[minBlockNumber])
+	STATIONARY_COUNT++;
+      else
+	STATIONARY_COUNT = 0;
+      
       allBlockMin = GCmin[minBlockNumber];
       allBlockParticle = minBlockNumber*particleBlockSize+GCminIndex[minBlockNumber];
 
       
       
       if(params.verbose)
-      	printf("iteration = %i, particle = %li, value = %e \n",
-	       iter,allBlockParticle,allBlockMin);
-  
+      	printf("iteration = %i, particle = %li, value = %e, STATCOUNT = %i \n",
+	       iter,allBlockParticle,allBlockMin,STATIONARY_COUNT);
+      iter++;
     }
   
   // Return the best angle.
