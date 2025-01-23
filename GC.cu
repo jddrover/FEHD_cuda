@@ -281,10 +281,9 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
 	}
 
 
-  // Number of iterations
-  int numIts = 50;
+  
   // The step-sizes to check along the (-)gradient.
-  std::vector<float> h = {0.01f, 1.0f, 10.0f};
+  std::vector<float> h = {0.001f, 0.01f, 0.1f};
 
   std::vector<float> candidates(4,0);
   int minIndx;
@@ -416,7 +415,7 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
 
 
   int STATIONARY_COUNT = 0;
-  const int COUNTMAX = 5;
+  const int COUNTMAX = params.STUCKCOUNT;
 
   
   
@@ -532,7 +531,7 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
       
       
       if(params.verbose)
-      	printf("iteration = %i, particle = %li, value = %e, STATCOUNT = %i \n",
+      	printf("iteration = %i, particle = %li, value = %e, exit count = %i \n",
 	       iter,allBlockParticle,allBlockMin,STATIONARY_COUNT);
       iter++;
     }

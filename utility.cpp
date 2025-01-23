@@ -109,9 +109,18 @@ void setUpParameters(int argc,char** argv,paramContainer &params)
 	  params.outfolder = std::string(argv[i+1]);
 	  params.outfolderFLAG = 1;
 	}
+      if(std::string(argv[i]) == "-exitcount")
+	{
+	  params.STUCKCOUNT = std::stoi(std::string(argv[i+1]));
+	  params.STUCKCOUNTFLAG = 1;
+	}
     }
 
   FILE *f;
+
+
+  if(params.STUCKCOUNTFLAG == 0)
+    params.STUCKCOUNT = 5;
   
   if(params.filenameFLAG == 0)
     {
@@ -376,6 +385,7 @@ void setFLAGStoZero(paramContainer &params)
   params.freqLoFLAG = 0;
   params.freqHiFLAG = 0;
   params.numFreqsFLAG = 0;
+  params.STUCKCOUNTFLAG = 0;
 }
   
 void printParams(paramContainer params)
