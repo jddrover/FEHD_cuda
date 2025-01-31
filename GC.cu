@@ -287,7 +287,7 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
 
   std::vector<float> candidates(4,0);
   int minIndx;
-  float allBlockMin=0.0;
+  float allBlockMin=10000.0; // Just needs a value. Doesn't really matter what
 
   int minBlockNumber;
   // For recycling
