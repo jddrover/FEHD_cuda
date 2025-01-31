@@ -19,7 +19,9 @@ put it in your path.
 Requires: cublas, cusolver, blas, lapacke
 
 Use:
-FEHD -filename yourfilename -sampRate samp -epochPts points_per_trial_or_epoch -numPCs number_of_PCs_to_use -numLags ARlags -freqLo low_freq_bound -freqHi high_freq_bound -numFreqs number_of_freqs_evaluate -numParticles number_solvers -outfolder where_to_put_output
+FEHD -filename yourfilename -sampRate samp -epochPts points_per_trial_or_epoch -numPCs number_of_PCs_to_use -numLags ARlags -freqLo low_freq_bound -freqHi high_freq_bound -numFreqs number_of_freqs_evaluate -numParticles number_solvers -outfolder where_to_put_output -exitcount integer
+
+Parameters for the solver include numParticles and exitcount. numParticles are the number of independent minimizers following gradients downward. exitcount is the number of iterations that the global minimum can remain unchanged, at which point the algorithm exits. 
 
 
 
