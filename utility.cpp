@@ -345,7 +345,7 @@ void writeOutput(float *transMat,paramContainer params)
   metaStream << "low frequency = " << params.freqLo << std::endl;
   metaStream << "high frequency = " << params.freqHi << std::endl;
   metaStream << "number of frequencies = " << params.numFreqs << std::endl;
-								 
+  metaStream << "Exit count = " << params.STUCKCOUNT << std::endl;
   metaStream.close();
 
   // Now write the data.
