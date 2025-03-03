@@ -14,15 +14,11 @@
 #include "mkARGPU.h"
 #include "cuda.h"
 #include "cuda_runtime_api.h"
+#include "workArray.h"
 
-void granger(float *ARdev, std::vector<float> angleArray,
-	     std::vector<float> &GCvals, paramContainer params, int
-	     numComps,int *lagList_DEVICE, float *Qdev,float
-	     *rotatedModels,float *workArray,float2 *Tf,float2
-	     *Swhole,float2 *tmp,float2 *Spartial,float2 *d_wholeSpec,
-	     float *dev_W,int *d_info,int &lworkVal,float2
-	     *d_work2,float *det_whole,float *det_partial,float
-	     *dev_GC)
+void granger(std::vector<float> angleArray,
+	     std::vector<float> &GCvals, paramContainer params,
+	     int numComps,workForGranger workArray)
 {
   int blksize = 1024;
   int grdsize = (int)(params.numParticles+blksize-1)/blksize;
@@ -43,7 +39,7 @@ void granger(float *ARdev, std::vector<float> angleArray,
   betaC2.x=1.0f;
   betaC2.y=0.0f;
   
-  int lwork = lworkVal;
+  int lwork = workArray.lworkVal;
 
   
   
@@ -113,7 +109,8 @@ void granger(float *ARdev, std::vector<float> angleArray,
 
 
 
-  
+  // I remember this being here because it was difficult otherwise, I do not remember
+  // what made it difficult. I would like to place it externally. 3/3/25
   // Create an array and allocate space on the device to store the rotation matrices
   float *angles_dev;
   cudaMalloc((void**)&angles_dev, sizeof(float)*(numComps-1)*params.numParticles);
@@ -123,21 +120,21 @@ void granger(float *ARdev, std::vector<float> angleArray,
 
 
   // Using the angles in angles_dev, create the rotation matrices Q.
-  generateRotationMatrices<<<gridSize,blockSize>>>(angles_dev,Qdev,numComps,params.numParticles);
+  generateRotationMatrices<<<gridSize,blockSize>>>(angles_dev,workArray.Qdev,numComps,params.numParticles);
   // Create
   // [A1^tQ1* A1^tQ2* ... A1^tQp*]
   // [A2^tQ1* ...                ]
   // [...                        ]
   // [AL^tQ1* ...     ... AL^tQp*]
   cublasSgemm(cublasH,CUBLAS_OP_T,CUBLAS_OP_N,numComps*params.numLags,numComps*params.numParticles,
-  	      numComps,&alpha,ARdev,numComps,Qdev,numComps,&beta,rotatedModels,
+  	      numComps,&alpha,workArray.ARdev,numComps,workArray.Qdev,numComps,&beta,workArray.rotatedModels,
 	      numComps*params.numLags);
   // Transpose each individual lag matrix
   // [Q1A1 Q2A1 ... ... QpA1]
   // [Q1A2 ...              ]
   // [...                   ]
   // [Q1AL ...  ... ... QpAL]
-  transposeBlockMatrices<<<gridSize2,blockSize>>>(rotatedModels,workArray,numComps,params.numParticles,params.numLags);
+  transposeBlockMatrices<<<gridSize2,blockSize>>>(workArray.rotatedModels,workArray.wArray,numComps,params.numParticles,params.numLags);
   // Multiply, strided
   // [Q1A1]     [Q2A1]    ... [QpA1]
   // [ ...]Q1*  [... ]Q2* ... [... ]Qp*
@@ -145,15 +142,15 @@ void granger(float *ARdev, std::vector<float> angleArray,
   cublasSgemmStridedBatched(cublasH,CUBLAS_OP_N,CUBLAS_OP_N,
 			    params.numLags*numComps,numComps,numComps,
 			    &alpha,
-			    workArray,numComps*params.numLags,params.numLags*numComps*numComps,
-			    Qdev,numComps,numComps*numComps,
+			    workArray.wArray,numComps*params.numLags,params.numLags*numComps*numComps,
+			    workArray.Qdev,numComps,numComps*numComps,
 			    &beta,
-			    rotatedModels,numComps*params.numLags,params.numLags*numComps*numComps,
+			    workArray.rotatedModels,numComps*params.numLags,params.numLags*numComps*numComps,
 			    params.numParticles);
   // Compute the inverse of the transfer function - numParticles * numFreqs complex matrices
   // [Tfp1f1^-1, Tfp1f2^-1, ... , Tfp1fF^-1, Tfp2f1^-1, ... TfppfF^-1]
   // See the function in kernels.cu for the details on how it works.
-  compTransferFunc<<<gridSizeTF,blockSizeTF,memsizetf>>>(rotatedModels,Tf,lagList_DEVICE,numComps,
+  compTransferFunc<<<gridSizeTF,blockSizeTF,memsizetf>>>(workArray.rotatedModels,workArray.Tf,workArray.lagList_DEVICE,numComps,
 						       params.numParticles,params.freqLo,
 						       params.freqHi,params.numFreqs,
 						       params.numLags,dt);
@@ -162,10 +159,10 @@ void granger(float *ARdev, std::vector<float> angleArray,
   cublasCgemmStridedBatched(cublasH,CUBLAS_OP_C,CUBLAS_OP_N,
 				   numComps,numComps,numComps,
 				   &alphaC,
-				   Tf,numComps,numComps*numComps,
-				   Tf,numComps,numComps*numComps,
+				   workArray.Tf,numComps,numComps*numComps,
+				   workArray.Tf,numComps,numComps*numComps,
 				   &betaC,
-				   Swhole,numComps,numComps*numComps,
+				   workArray.Swhole,numComps,numComps*numComps,
 				   params.numParticles*params.numFreqs);
 
   // Our first goal is to obtain the sub m-1 x m-1 spectral matrix for each frequency.
@@ -178,64 +175,64 @@ void granger(float *ARdev, std::vector<float> angleArray,
   // we will not need to invert it.
   // This function scales the mth column (B) in each submatrix by the m,m entry.
   // This is preparation for the gemm below. 
-  scale_columns<<<gridSizeScale,blockSizeTF>>>(Swhole,numComps,params.numParticles,params.numFreqs);
+  scale_columns<<<gridSizeScale,blockSizeTF>>>(workArray.Swhole,numComps,params.numParticles,params.numFreqs);
   // Copy the entire spectral matrix to a temporary array (not really temporary)
   cublasCcopy(cublasH,params.numParticles*params.numFreqs*numComps*numComps,
-	      Swhole,1,tmp,1);
+	      workArray.Swhole,1,workArray.tmp,1);
   // GEMM does the above calculation.
   cublasCgemmStridedBatched(cublasH,CUBLAS_OP_N,CUBLAS_OP_N,
 				   numComps-1,numComps-1,1,
 				   &alphaC2,
-				   Swhole+(numComps-1)*numComps,numComps,numComps*numComps,
-				   Swhole+(numComps-1),numComps,numComps*numComps, 
+				   workArray.Swhole+(numComps-1)*numComps,numComps,numComps*numComps,
+				   workArray.Swhole+(numComps-1),numComps,numComps*numComps, 
 				   &betaC2,
-				   tmp,numComps,numComps*numComps,
+				   workArray.tmp,numComps,numComps*numComps,
 				   params.numParticles*params.numFreqs);
   // Copy back to Swhole array
   cublasCcopy(cublasH,params.numParticles*params.numFreqs*numComps*numComps,
-	      tmp,1,Swhole,1);
+	      workArray.tmp,1,workArray.Swhole,1);
 
   // Same trick, but we need the product of the sub-transfer functions.
   // We determine the sub-inverse as above, first by scaling:
-  scale_columns<<<gridSizeScale,blockSizeTF>>>(Tf,numComps,params.numParticles,params.numFreqs);
+  scale_columns<<<gridSizeScale,blockSizeTF>>>(workArray.Tf,numComps,params.numParticles,params.numFreqs);
   // Then copying to a temporary array
   cublasCcopy(cublasH,params.numParticles*params.numFreqs*numComps*numComps,
-	      Tf,1,tmp,1);
+	      workArray.Tf,1,workArray.tmp,1);
   // Now we have the inverses of the sub transfer functions.
   cublasCgemmStridedBatched(cublasH,CUBLAS_OP_N,CUBLAS_OP_N,
 				   numComps-1,numComps-1,1,
 				   &alphaC2,
-				   Tf+(numComps-1)*numComps,numComps,numComps*numComps,
-				   Tf+numComps-1,numComps,numComps*numComps,
+				   workArray.Tf+(numComps-1)*numComps,numComps,numComps*numComps,
+				   workArray.Tf+numComps-1,numComps,numComps*numComps,
 				   &betaC2,
-				   tmp,numComps,numComps*numComps,
+				   workArray.tmp,numComps,numComps*numComps,
 				   params.numParticles*params.numFreqs);
 
   // And we multiply them to get the spectrum without the influence of the last component.
   cublasCgemmStridedBatched(cublasH,CUBLAS_OP_C,CUBLAS_OP_N,
 				   numComps-1,numComps-1,numComps-1,
 				   &alphaC,
-				   tmp,numComps,numComps*numComps,
-				   tmp,numComps,numComps*numComps,
+				   workArray.tmp,numComps,numComps*numComps,
+				   workArray.tmp,numComps,numComps*numComps,
 				   &betaC,
-				   Spartial,numComps-1,(numComps-1)*(numComps-1),
+				   workArray.Spartial,numComps-1,(numComps-1)*(numComps-1),
 				   params.numParticles*params.numFreqs);
   // Cheev batched doesn't stride, so I shrink the whole spectrum arrays to the m-1 x m-1 size. 
-  shrinkArrays<<<gridSizeShrink,blockSizeShrink>>>(Swhole, d_wholeSpec, numComps, params.numParticles, params.numFreqs);
+  shrinkArrays<<<gridSizeShrink,blockSizeShrink>>>(workArray.Swhole, workArray.d_wholeSpec, numComps, params.numParticles, params.numFreqs);
   // Cholesky algorithm to determine the eigenvalues (we set it not to compute eigenvectors, it can)
-  cusolverDnCheevjBatched(cusolverH,jobz,uplo,numComps-1,d_wholeSpec,numComps-1,
-			  dev_W, d_work2,lwork,d_info, syevj_params, params.numFreqs*params.numParticles);
+  cusolverDnCheevjBatched(cusolverH,jobz,uplo,numComps-1,workArray.d_wholeSpec,numComps-1,
+			  workArray.dev_W, workArray.d_work2,lwork,workArray.d_info, syevj_params, params.numFreqs*params.numParticles);
   // Multiply the eigenvalues together to get the determinant. 
-  prodEigs<<<gridSizeProd,blockSizeProd,memsizeEig>>>(dev_W, det_whole, numComps-1, params.numParticles, params.numFreqs);
+  prodEigs<<<gridSizeProd,blockSizeProd,memsizeEig>>>(workArray.dev_W, workArray.det_whole, numComps-1, params.numParticles, params.numFreqs);
   // Repeat for the partial spectral matrices. 
-  cusolverDnCheevjBatched(cusolverH,jobz,uplo,numComps-1,Spartial,numComps-1,
-			  dev_W, d_work2,lwork,d_info, syevj_params, params.numFreqs*params.numParticles);
+  cusolverDnCheevjBatched(cusolverH,jobz,uplo,numComps-1,workArray.Spartial,numComps-1,
+			  workArray.dev_W, workArray.d_work2,lwork,workArray.d_info, syevj_params, params.numFreqs*params.numParticles);
   // Compute the determinant.
-  prodEigs<<<gridSizeProd,blockSizeProd,memsizeEig>>>(dev_W, det_partial, numComps-1, params.numParticles, params.numFreqs);      
+  prodEigs<<<gridSizeProd,blockSizeProd,memsizeEig>>>(workArray.dev_W, workArray.det_partial, numComps-1, params.numParticles, params.numFreqs);      
   // Divides the determinants, takes the log, and adds to the integral. 
-  det2GC<<<gridSize_det2GC,blockSize_det2GC>>>(det_partial, det_whole, dev_GC,params.numParticles,params.numFreqs);
+  det2GC<<<gridSize_det2GC,blockSize_det2GC>>>(workArray.det_partial, workArray.det_whole, workArray.dev_GC,params.numParticles,params.numFreqs);
   // Send the numParticles Granger causality values to the system memory.
-  cudaMemcpy(GCvals.data(),dev_GC,sizeof(float)*params.numParticles,cudaMemcpyDeviceToHost);
+  cudaMemcpy(GCvals.data(),workArray.dev_GC,sizeof(float)*params.numParticles,cudaMemcpyDeviceToHost);
   // Clean up (if you don't memory will leak).
   cusolverDnDestroy(cusolverH);
   cublasDestroy(cublasH);
@@ -287,7 +284,7 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
 
   std::vector<float> candidates(4,0);
   int minIndx;
-  float allBlockMin=10000.0; // Just needs a value. Doesn't really matter what
+  float allBlockMin=10000.0; // Just needs a somewhat large value. Will be set below.
 
   int minBlockNumber;
   // For recycling
@@ -310,7 +307,7 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
       printf("total memory = %ld bytes \n",total);
     }
   
-  computeBlocks(numBlocks,particleBlockSize,freemem,params,numComps); // Need to write this.
+  computeBlocks(numBlocks,particleBlockSize,freemem,params,numComps);
   
   paramContainer paramsBLOCKED = params;
   paramsBLOCKED.numParticles = particleBlockSize;
@@ -323,43 +320,11 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
 
   std::vector<float> GCmin(numBlocks,0);
   std::vector<int> GCminIndex(numBlocks,0);
-  // Allocate a whole bunch of stuff on the GPU.
-  float *Qdev;
-  cudaMalloc((void**)&Qdev, sizeof(float)*particleBlockSize*numComps*numComps);
-  float *rotatedModels;
-  float *workArray;
-  cudaMalloc((void**)&rotatedModels, sizeof(float)*numComps*numComps*particleBlockSize*params.numLags);
-  cudaMalloc((void**)&workArray, sizeof(float)*numComps*numComps*particleBlockSize*params.numLags);
-  float2 *Tf;
-  cudaMalloc((void**)&Tf,sizeof(float2)*numComps*numComps*particleBlockSize*params.numFreqs);
-  float2 *Swhole;
-  cudaMalloc((void**)&Swhole,sizeof(float2)*numComps*numComps*params.numFreqs*particleBlockSize);
-  float2 *tmp;
-  cudaMalloc(&tmp,sizeof(float2)*particleBlockSize*params.numFreqs*numComps*numComps);
-  float2 *Spartial; // Make partial one size down
-  cudaMalloc((void**)&Spartial,sizeof(float2)*(numComps-1)*(numComps-1)*params.numFreqs*particleBlockSize);
-  float2 *d_wholeSpec;
-  cudaMalloc(&d_wholeSpec,sizeof(float2)*params.numFreqs*particleBlockSize*(numComps-1)*(numComps-1));
-  float *dev_W;
-  cudaMalloc(&dev_W,sizeof(float)*particleBlockSize*params.numFreqs*(numComps-1));
-  int *d_info;
-  cudaMalloc(&d_info,sizeof(int)*particleBlockSize*params.numFreqs);
-  int lworkVal = particleBlockSize*params.numFreqs*2*(numComps-1)*(numComps-1); 
-  float2 *d_work2;
-  cudaMalloc(&d_work2,sizeof(float2)*lworkVal);
-  float *det_whole;
-  cudaMalloc(&det_whole,sizeof(float)*particleBlockSize*params.numFreqs);
-  float *det_partial;
-  cudaMalloc(&det_partial,sizeof(float)*particleBlockSize*params.numFreqs);
-  float *dev_GC;
-  cudaMalloc(&dev_GC,sizeof(float)*particleBlockSize);
-  int *lagList_DEVICE;
-  cudaMalloc(&lagList_DEVICE,sizeof(int)*lagList.size());
-  cudaMemcpy(lagList_DEVICE,lagList.data(),sizeof(int)*lagList.size(),cudaMemcpyHostToDevice);
-  float *ARdev;
-  cudaMalloc(&ARdev,sizeof(float)*AR.size());
-  cudaMemcpy(ARdev,AR.data(),sizeof(float)*AR.size(),cudaMemcpyHostToDevice);
 
+  // Allocate all of the arrays need for the GC function. 
+  workForGranger workArray;
+  allocateParams(workArray,numComps,particleBlockSize,params,lagList,AR);
+   
   // Angle arrays.
   std::vector<std::vector<float>> angleArray;
   std::vector<std::vector<float>> angleArray1;
@@ -407,8 +372,7 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
       
   for(int block=0;block<numBlocks;block++)
     {
-      granger(ARdev,angleArray[block],GCvals[block], paramsBLOCKED,numComps,lagList_DEVICE,Qdev,rotatedModels,workArray,Tf,Swhole,tmp,
-	      Spartial,d_wholeSpec,dev_W,d_info,lworkVal,d_work2,det_whole,det_partial,dev_GC);
+      granger(angleArray[block],GCvals[block], paramsBLOCKED,numComps,workArray);
     }
   // Here is the iterator - adjustments occur here.
   // while STATIONARY_COUNT < COUNTMAX
@@ -425,8 +389,7 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
     {
       // Get a bunch of gradients
       for(int block=0;block<numBlocks;block++)
-	compGradient(ARdev,gradient[block],GCvals[block],angleArray[block],paramsBLOCKED,numComps,lagList_DEVICE,Qdev,rotatedModels,
-		     workArray,Tf,Swhole,tmp,Spartial,d_wholeSpec,dev_W,d_info,lworkVal,d_work2,det_whole,det_partial,dev_GC);
+	compGradient(gradient[block],GCvals[block],angleArray[block],paramsBLOCKED,numComps,workArray);
 
       // Assign values to the angles accordning to the gradient.
       for(int block=0;block<numBlocks;block++)
@@ -442,12 +405,11 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
       // Evaluate the minimization candidates.
       for(int block=0;block<numBlocks;block++)
 	{
-	  granger(ARdev,angleArray1[block],GCvals1[block],paramsBLOCKED,numComps,lagList_DEVICE,Qdev,rotatedModels,workArray,Tf,Swhole,tmp,Spartial,d_wholeSpec,dev_W,
-		  d_info,lworkVal,d_work2,det_whole,det_partial,dev_GC);
-	  granger(ARdev,angleArray2[block],GCvals2[block],paramsBLOCKED,numComps,lagList_DEVICE,Qdev,rotatedModels,workArray,Tf,Swhole,tmp,Spartial,d_wholeSpec,dev_W,
-		  d_info,lworkVal,d_work2,det_whole,det_partial,dev_GC);
-	  granger(ARdev,angleArray3[block],GCvals3[block],paramsBLOCKED,numComps,lagList_DEVICE,Qdev,rotatedModels,workArray,Tf,Swhole,tmp,Spartial,d_wholeSpec,dev_W,
-		  d_info,lworkVal,d_work2,det_whole,det_partial,dev_GC);
+
+	  granger(angleArray1[block],GCvals1[block],paramsBLOCKED,numComps,workArray);
+	  granger(angleArray2[block],GCvals2[block],paramsBLOCKED,numComps,workArray);
+	  granger(angleArray3[block],GCvals3[block],paramsBLOCKED,numComps,workArray);
+
 	}
 
       
@@ -510,9 +472,9 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
        
 	  if(paramsReset.numParticles>=1)
 	    {
-	      granger(ARdev,angleArrayReset,GCvalsReset,paramsReset,numComps,lagList_DEVICE,
-		      Qdev,rotatedModels,workArray,Tf,Swhole,tmp,Spartial,d_wholeSpec,dev_W, d_info,
-		      lworkVal,d_work2,det_whole,det_partial,dev_GC);
+
+	      granger(angleArrayReset,GCvalsReset,paramsReset,numComps,workArray);
+
 	      for(int resetParticle=0;resetParticle<paramsReset.numParticles;resetParticle++)
 		GCvals[block][resetList[resetParticle]]=GCvalsReset[resetParticle];
 	    }
@@ -544,29 +506,14 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
 
   std::copy(angleArray[minBlockNumber].data()+indexVal*(numComps-1),angleArray[minBlockNumber].data()+indexVal*(numComps-1)+numComps-1,bestAngle.begin());
 
-  cudaFree(Qdev);
-  cudaFree(rotatedModels);
-  cudaFree(workArray);
-  cudaFree(Tf);
-  cudaFree(Swhole);
-  cudaFree(tmp);
-  cudaFree(Spartial);
-  cudaFree(d_wholeSpec);
-  cudaFree(dev_W);
-  cudaFree(d_info);
-  cudaFree(d_work2);
-  cudaFree(det_whole);
-  cudaFree(det_partial);
-  cudaFree(dev_GC);
-  cudaFree(lagList_DEVICE);
-  cudaFree(ARdev);
+
+  freeWorkArray(workArray);
   
   return;
  
 }
-void compGradient(float *ARdev, std::vector<float> &gradient ,std::vector<float> GCvalsBASE,std::vector<float> angleArray,paramContainer params, int numComps,
-		  int *lagList_DEVICE,float *Qdev,float *rotatedModels,float *workArray,float2 *Tf,float2 *Swhole,float2 *tmp,float2 *Spartial,
-		  float2 *d_wholeSpec,float *dev_W,int *d_info,int lworkVal,float2 *d_work2,float *det_whole,float *det_partial,float *dev_GC)
+void compGradient(std::vector<float> &gradient ,std::vector<float> GCvalsBASE,std::vector<float> angleArray,paramContainer params, int numComps,
+		  workForGranger workArray)
 {
   const int numVars = numComps-1;
   const float  h_val = 0.001f; // This is for the gradient spacing.
@@ -586,8 +533,7 @@ void compGradient(float *ARdev, std::vector<float> &gradient ,std::vector<float>
 	  angle[particle*numVars+varIndex] += h_val;
 	}
 
-      granger(ARdev,angle,GCvalsUTIL,params,numComps,lagList_DEVICE,Qdev,rotatedModels,workArray,Tf,Swhole,tmp,Spartial,d_wholeSpec,
-	      dev_W,d_info,lworkVal,d_work2,det_whole,det_partial,dev_GC);
+      granger(angle,GCvalsUTIL,params,numComps,workArray);
 
       for(int particle=0;particle<params.numParticles;particle++)
 	{
