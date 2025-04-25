@@ -5,11 +5,10 @@
 #include "utility.h"
 #include <cuda_runtime.h>
 #include <cusolverDn.h>
+#include "workArray.h"
 
-void granger(float *, std::vector<float>, std::vector<float> &, paramContainer, int, int *,float *,float *,float *,float2 *,float2 *,
-	     float2 *,float2 *,float2 *,float *,int *,int &,float2 *,float *,float *,float *);
+void granger(std::vector<float>, std::vector<float> &, paramContainer, int,workForGranger workArray);
 void runFEHDstep(std::vector<float> &, matrix &, dataList, paramContainer, int);
-void compGradient(float *, std::vector<float> &, std::vector<float>,std::vector<float>,paramContainer,int,int *,float *,float *,float *,float2 *,float2 *,
-		  float2 *,float2 *,float2 *, float *,int *,int,float2 *,float *,float *,float *);
+void compGradient(std::vector<float> &, std::vector<float>,std::vector<float>,paramContainer,int,workForGranger workArray);
 void computeBlocks(int &,int &,size_t,paramContainer,int);
 #endif

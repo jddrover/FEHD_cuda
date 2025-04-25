@@ -36,6 +36,8 @@ struct paramContainer
   int numFreqsFLAG;
   bool verbose;
   std::vector<int> lagList;
+  int STUCKCOUNT;
+  int STUCKCOUNTFLAG;
 } ;
 
 void setUpParameters(int argc,char** argv,paramContainer &params);
