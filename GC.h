@@ -16,5 +16,5 @@ void granger(std::vector<float>, std::vector<float> &, paramContainer, int,workF
 void runFEHDstep(std::vector<float> &, matrix &, dataList, paramContainer, int);
 void compGradient(std::vector<float> &, std::vector<float>,std::vector<float>,paramContainer,int,workForGranger workArray);
 void computeBlocks(int &,int &,size_t,paramContainer,int);
-void PSOstep(std::vector<particleObject> &,std::vector<particleObject> &, particleObject &);
+void PSOstep(std::vector<particleObject> &,std::vector<particleObject> &, particleObject &,paramContainer,int,int,workForGranger);
 #endif

@@ -2,6 +2,7 @@
 #include "dataContainers.h"
 #include "utility.h"
 #include "timeSeriesOPs.h"
+#include <iostream>
 #include <vector>
 #include <math.h>
 #include <cuda_runtime.h>
@@ -41,7 +42,7 @@ void granger(std::vector<float> angleArray,
   
   int lwork = workArray.lworkVal;
 
-  
+
   
   // cublas handle. Contains info about the system that routines need.
   cublasHandle_t cublasH = 0;
@@ -244,7 +245,7 @@ void granger(std::vector<float> angleArray,
 
 void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,paramContainer params,int numComps)
 {
-
+  
   // Determine the available memory on the GPU
   int id;
   size_t freemem,total;
@@ -276,26 +277,6 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
 	{
 	  AR[lag*numComps*numComps+col*numComps+row] = A.lagMatrices[lag].elements[col*numComps+row];
 	}
-
-
-  
-  // The step-sizes to check along the (-)gradient.
-  std::vector<float> h = {0.001f, 0.01f, 0.1f};
-
-  std::vector<float> candidates(4,0);
-  int minIndx;
-  float allBlockMin=10000.0; // Just needs a somewhat large value. Will be set below.
-
-  int minBlockNumber;
-  // For recycling
-  unsigned long int minimumGC;
-  unsigned long int allBlockParticle;
-  std::vector<int> resetList;
-  std::vector<float> angleArrayReset;
-
-  std::vector<float> GCvalsReset;
-
-  paramContainer paramsReset = params;
 
   // Determine how to break up the analysis so that it fits on the GPU.
   int numBlocks, particleBlockSize;
@@ -386,10 +367,17 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
 	}
     }
   std::vector<particleObject> particleMIN(particleInfo);
-  
+  particleObject pGlobal;
+  std::vector<float> v(params.numParticles);
+  for(int part=0;part<params.numParticles;part++)
+    {
+      v[part]=particleInfo[part].value;
+    }
+  int globalMinIndex = std::min_element(v.begin(),v.end())-v.begin();
+  std::vector<float> globalMinLocation (particleInfo[globalMinIndex].location);
+  pGlobal.location = globalMinLocation;
+  pGlobal.value = v[globalMinIndex];
 
-  
-  exit(0);
       
   int STATIONARY_COUNT = 0;
   const int COUNTMAX = params.STUCKCOUNT;
@@ -400,8 +388,8 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
   int iter = 0;
   while(STATIONARY_COUNT < COUNTMAX)
     {
-      PSOstep(particleInfo,particleMIN,pGlobal);
-      
+      PSOstep(particleInfo,particleMIN,pGlobal,paramsBLOCKED,numBlocks,numComps,workArray);
+      std::cout << pGlobal.value << std::endl;
     }
   
   freeWorkArray(workArray);
@@ -501,20 +489,22 @@ void computeBlocks(int &numBlocks,int &particleBlockSize,size_t memval,paramCont
   return;
 }
 
-void PSOstep(std::vector<particle> &L,std::vector<particle> &Lmin,particle &Lglobal)
+void PSOstep(std::vector<particleObject> &L,std::vector<particleObject> &Lmin,particleObject &Lglobal,paramContainer paramsBLOCKED,
+	     int numBlocks,int numComps,workForGranger workArray)
 {
   // Establish the minimum value and record location
   int P = L.size();
   int M = L[0].location.size();
   float movement, noiseSize;
   float h=0.1;
-
+  int Pblock = paramsBLOCKED.numParticles;
+  std::vector<std::vector<float>> angleArray;
   // Noise - reseed?
   // Noise has normal amplitude in each direction
   // This amplitude is scaled according to a parameter.
   std::random_device gen;
   std::default_random_engine generator(gen());
-  std::uniform_real_distribution<float> distribution(-10,10);
+  //std::uniform_real_distribution<float> distribution(-3.14159,3.14159);
   for(int part=0;part<P;part++)
     {
       for(int k=0;k<M;k++)
@@ -526,8 +516,31 @@ void PSOstep(std::vector<particle> &L,std::vector<particle> &Lmin,particle &Lglo
 	  L[part].location[k] = L[part].location[k]+movement+distribution(generator);
 	}
     }
+  // Turn L back into the angle arrays.
+  std::vector<float> tmpVec;
+  for(int block=0;block<numBlocks;block++)
+    {
+      for(int part=0;part<Pblock;part++)
+	{
+	  for(int indx=0;indx<numComps-1;indx++)
+	    tmpVec.push_back(L[block*Pblock+part].location[indx]);
+	}
+      angleArray.push_back(tmpVec);
+    }
+  // Create GCvals
+  std::vector<float> GCvals(Pblock);
 
-  objFunc(L);// This is a little more elaborate. Perhaps this is integrated?
+  
+  
+  for(int block=0;block<numBlocks;block++)
+    {      
+      granger(angleArray[block],GCvals, paramsBLOCKED,numComps,workArray);
+
+      for(int part=0;part<Pblock;part++)
+	L[block*Pblock+part].value = GCvals[part];
+      
+    }
+  
 
   for(int part=0;part<P;part++)
     {
