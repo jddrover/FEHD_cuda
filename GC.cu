@@ -386,13 +386,31 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
   
   //for(int iter=0;iter<numIts;iter++)
   int iter = 0;
+  float pGlobal_store = pGlobal.value;
   while(STATIONARY_COUNT < COUNTMAX)
     {
       PSOstep(particleInfo,particleMIN,pGlobal,paramsBLOCKED,numBlocks,numComps,workArray);
-      std::cout << pGlobal.value << std::endl;
+      if(pGlobal.value >= pGlobal_store)
+	STATIONARY_COUNT++;
+      else
+	{
+	  STATIONARY_COUNT=0;
+	  pGlobal_store = pGlobal.value;
+	}
+      iter++;
+      std::cout << "Iteration: " << iter << " Global value: " << pGlobal.value << " Exit count: " << STATIONARY_COUNT << std::endl;
+      std::cout << "Location: " << std::endl;
+
+      for (int comp=0;comp<numComps-1;comp++)
+	  std::cout << pGlobal.location[comp] << std:: endl;
+      std::cout << std::endl;
+      std::cout << particleInfo[0].value << " " << particleMIN[0].value << std::endl;
+      
+	
     }
   
   freeWorkArray(workArray);
+  bestAngle = pGlobal.location;
   
   return;
  
@@ -495,8 +513,11 @@ void PSOstep(std::vector<particleObject> &L,std::vector<particleObject> &Lmin,pa
   // Establish the minimum value and record location
   int P = L.size();
   int M = L[0].location.size();
+  std::cout << "M=" << M << std::endl;
   float movement, noiseSize;
-  float h=0.1;
+  float h=0.05; // h < 2/(alpha+beta)
+  float alpha=0.25;
+  float beta=1.0;
   int Pblock = paramsBLOCKED.numParticles;
   std::vector<std::vector<float>> angleArray;
   // Noise - reseed?
@@ -509,10 +530,11 @@ void PSOstep(std::vector<particleObject> &L,std::vector<particleObject> &Lmin,pa
     {
       for(int k=0;k<M;k++)
 	{
-	  movement = h*(Lmin[part].location[k]-L[part].location[k]+Lglobal.location[k]-L[part].location[k]);
+	  //movement = h*(Lmin[part].location[k]-L[part].location[k]+Lglobal.location[k]-L[part].location[k]);
+	  movement = h*(alpha*(Lmin[part].location[k]-L[part].location[k])+beta*(Lglobal.location[k]-L[part].location[k]));
 	  L[part].location[k] = L[part].location[k]+movement;
 	  noiseSize = std::abs(movement);
-	  std::normal_distribution<float> distribution(0.0,noiseSize*0.1);
+	  std::normal_distribution<float> distribution(0.0,noiseSize*0.1+0.01);
 	  L[part].location[k] = L[part].location[k]+movement+distribution(generator);
 	}
     }
@@ -537,11 +559,10 @@ void PSOstep(std::vector<particleObject> &L,std::vector<particleObject> &Lmin,pa
       granger(angleArray[block],GCvals, paramsBLOCKED,numComps,workArray);
 
       for(int part=0;part<Pblock;part++)
-	L[block*Pblock+part].value = GCvals[part];
-      
+	L[block*Pblock+part].value = GCvals[part];      
     }
   
-
+  int globalParticle;
   for(int part=0;part<P;part++)
     {
       if(L[part].value < Lmin[part].value)
@@ -553,9 +574,10 @@ void PSOstep(std::vector<particleObject> &L,std::vector<particleObject> &Lmin,pa
 	{
 	  Lglobal.location = L[part].location;
 	  Lglobal.value = L[part].value;
+	  globalParticle = part;
 	}
     }
-
+  std::cout << "global particle: " << part
   return;  
 }
   
