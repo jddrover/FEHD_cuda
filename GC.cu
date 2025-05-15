@@ -316,7 +316,7 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
   std::vector<float> tmpAngle;
   std::random_device gen;
   std::default_random_engine generator(gen());
-  std::uniform_real_distribution<float> distribution(-3.1415,3.1415);
+  std::uniform_real_distribution<float> distribution(-1.5*3.1415,1.5*3.1415);
   for(int block=0;block<numBlocks;block++)
     {
       for(int indx=0;indx<particleBlockSize*(numComps-1);indx++)
@@ -358,10 +358,8 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
       for(int part=0;part<paramsBLOCKED.numParticles;part++)
 	{
 	  particleInfo[block*paramsBLOCKED.numParticles+part].location.resize(numComps-1);
-	  std::copy(angleArray[block].begin()+block*paramsBLOCKED.numParticles+
-		    part*(numComps-1),
-		    angleArray[block].begin()+block*paramsBLOCKED.numParticles+
-		    part*(numComps-1)+(numComps-1),
+	  std::copy(angleArray[block].begin()+part*(numComps-1),
+		    angleArray[block].begin()+part*(numComps-1)+(numComps-1),
 		    particleInfo[block*paramsBLOCKED.numParticles+part].location.begin());
 	  particleInfo[block*paramsBLOCKED.numParticles+part].value = GCvals[block][part];
 	}
@@ -378,7 +376,8 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
   pGlobal.location = globalMinLocation;
   pGlobal.value = v[globalMinIndex];
 
-      
+
+  
   int STATIONARY_COUNT = 0;
   const int COUNTMAX = params.STUCKCOUNT;
 
@@ -398,17 +397,20 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
 	  pGlobal_store = pGlobal.value;
 	}
       iter++;
-      std::cout << "Iteration: " << iter << " Global value: " << pGlobal.value << " Exit count: " << STATIONARY_COUNT << std::endl;
-      std::cout << "Location: " << std::endl;
 
-      for (int comp=0;comp<numComps-1;comp++)
-	  std::cout << pGlobal.location[comp] << std:: endl;
-      std::cout << std::endl;
-      std::cout << particleInfo[0].value << " " << particleMIN[0].value << std::endl;
       
+      //std::cout << "Iteration: " << iter << " Global value: " << pGlobal.value << " Exit count: " << STATIONARY_COUNT << std::endl;
+      //std::cout << "Location: " << std::endl;
+
+      //for (int comp=0;comp<numComps-1;comp++)
+      //	  std::cout << pGlobal.location[comp] << std:: endl;
+      //std::cout << std::endl;
+      /*std::cout << particleInfo[0].value << " " << particleMIN[0].value << std::endl;
+      */
 	
     }
-  
+  std::cout << "Iteration: " << iter << " Global value: " << pGlobal.value << " Exit count: " << STATIONARY_COUNT << std::endl;
+  exit(0);
   freeWorkArray(workArray);
   bestAngle = pGlobal.location;
   
@@ -513,35 +515,77 @@ void PSOstep(std::vector<particleObject> &L,std::vector<particleObject> &Lmin,pa
   // Establish the minimum value and record location
   int P = L.size();
   int M = L[0].location.size();
-  std::cout << "M=" << M << std::endl;
+  
   float movement, noiseSize;
-  float h=0.05; // h < 2/(alpha+beta)
-  float alpha=0.25;
-  float beta=1.0;
+  float h=0.1; // h < 2/(alpha+beta)
+  float alpha=0.0;
+  float beta=0.5;
   int Pblock = paramsBLOCKED.numParticles;
   std::vector<std::vector<float>> angleArray;
+  std::vector<particleObject> LBAK1(L),LBAK2(L);
   // Noise - reseed?
   // Noise has normal amplitude in each direction
   // This amplitude is scaled according to a parameter.
   std::random_device gen;
   std::default_random_engine generator(gen());
-  //std::uniform_real_distribution<float> distribution(-3.14159,3.14159);
-  for(int part=0;part<P;part++)
+  std::uniform_real_distribution<float> distribution(0.0,1.0);
+  float normDistStd = 0.5*h;
+  std::normal_distribution<float> normDist(0.0,normDistStd);
+  std::vector<float> randVec(numComps-1);
+  float randRadius;
+  // This can probably be done very neatly.
+
+  
+  float r1,r2;
+    /*for(int part=0;part<P;part++)
     {
       for(int k=0;k<M;k++)
 	{
 	  //movement = h*(Lmin[part].location[k]-L[part].location[k]+Lglobal.location[k]-L[part].location[k]);
-	  movement = h*(alpha*(Lmin[part].location[k]-L[part].location[k])+beta*(Lglobal.location[k]-L[part].location[k]));
+	  r1 = distribution(generator);
+	  r2 = distribution(generator);
+	  movement = h*(alpha*r1*(Lmin[part].location[k]-L[part].location[k])+beta*r2*(Lglobal.location[k]-L[part].location[k]));
 	  L[part].location[k] = L[part].location[k]+movement;
-	  noiseSize = std::abs(movement);
-	  std::normal_distribution<float> distribution(0.0,noiseSize*0.1+0.01);
-	  L[part].location[k] = L[part].location[k]+movement+distribution(generator);
+
 	}
+	}*/
+  
+  // Using cblas to do the subtraction
+  float SOS;
+  for(int part=0;part<P;part++)
+    {
+      cblas_saxpy(numComps-1,-1.0,Lmin[part].location.data(),1,LBAK1[part].location.data(),1);
+      cblas_saxpy(numComps-1,-1.0,Lglobal.location.data(),1,LBAK2[part].location.data(),1);
+      r1 = 1.0;//distribution(generator);
+      r2 = 1.0;//distribution(generator);
+      //std::cout << r1 << " " << r2 << std::endl;
+      cblas_sscal(numComps-1,-alpha*r1,LBAK1[part].location.data(),1);
+      cblas_sscal(numComps-1,-beta*r2,LBAK2[part].location.data(),1);
+      cblas_saxpy(numComps-1,1.0,LBAK1[part].location.data(),1,LBAK2[part].location.data(),1);
+      cblas_saxpy(numComps-1,h,LBAK2[part].location.data(),1,L[part].location.data(),1);
+
+      // Create a random deviation
+      for(int comp=0;comp<numComps-1;comp++)
+	{
+	  randVec[comp] = distribution(generator);
+	  SOS = SOS + std::pow(randVec[comp],2);
+	}
+      SOS = cblas_snrm2(numComps-1,randVec.data(),1);
+      
+      cblas_sscal(numComps-1,randRadius/SOS,randVec.data(),1);
+      cblas_saxpy(numComps-1,1.0,randVec.data(),1,L[part].location.data(),1);
     }
+      
+  // Something to look for to see if this is doing what I expect is to keep track of the leader,
+  // it should wander around the minimum. This also keeps the particles off of the "tracks",
+  // which may or may not be a good thing. Might be both, at times.
+  
+  
   // Turn L back into the angle arrays.
   std::vector<float> tmpVec;
   for(int block=0;block<numBlocks;block++)
     {
+      tmpVec.clear();
       for(int part=0;part<Pblock;part++)
 	{
 	  for(int indx=0;indx<numComps-1;indx++)
@@ -549,10 +593,8 @@ void PSOstep(std::vector<particleObject> &L,std::vector<particleObject> &Lmin,pa
 	}
       angleArray.push_back(tmpVec);
     }
-  // Create GCvals
-  std::vector<float> GCvals(Pblock);
-
   
+  std::vector<float> GCvals(Pblock);
   
   for(int block=0;block<numBlocks;block++)
     {      
@@ -577,7 +619,7 @@ void PSOstep(std::vector<particleObject> &L,std::vector<particleObject> &Lmin,pa
 	  globalParticle = part;
 	}
     }
-  std::cout << "global particle: " << part
+  
   return;  
 }
   
