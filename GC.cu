@@ -17,6 +17,7 @@
 #include "cuda_runtime_api.h"
 #include "workArray.h"
 #include <random>
+//#include "matplotlibcpp.h"
 void granger(std::vector<float> angleArray,
 	     std::vector<float> &GCvals, paramContainer params,
 	     int numComps,workForGranger workArray)
@@ -399,7 +400,7 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
       iter++;
 
       
-      //std::cout << "Iteration: " << iter << " Global value: " << pGlobal.value << " Exit count: " << STATIONARY_COUNT << std::endl;
+      std::cout << "Iteration: " << iter << " Global value: " << pGlobal.value << " Exit count: " << STATIONARY_COUNT << std::endl;
       //std::cout << "Location: " << std::endl;
 
       //for (int comp=0;comp<numComps-1;comp++)
@@ -517,9 +518,9 @@ void PSOstep(std::vector<particleObject> &L,std::vector<particleObject> &Lmin,pa
   int M = L[0].location.size();
   
   float movement, noiseSize;
-  float h=0.1; // h < 2/(alpha+beta)
-  float alpha=0.0;
-  float beta=0.5;
+  float h=0.5; // h < 2/(alpha+beta)
+  float alpha=1.0;
+  float beta=1.0;
   int Pblock = paramsBLOCKED.numParticles;
   std::vector<std::vector<float>> angleArray;
   std::vector<particleObject> LBAK1(L),LBAK2(L);
@@ -533,32 +534,17 @@ void PSOstep(std::vector<particleObject> &L,std::vector<particleObject> &Lmin,pa
   std::normal_distribution<float> normDist(0.0,normDistStd);
   std::vector<float> randVec(numComps-1);
   float randRadius;
-  // This can probably be done very neatly.
-
   
   float r1,r2;
-    /*for(int part=0;part<P;part++)
-    {
-      for(int k=0;k<M;k++)
-	{
-	  //movement = h*(Lmin[part].location[k]-L[part].location[k]+Lglobal.location[k]-L[part].location[k]);
-	  r1 = distribution(generator);
-	  r2 = distribution(generator);
-	  movement = h*(alpha*r1*(Lmin[part].location[k]-L[part].location[k])+beta*r2*(Lglobal.location[k]-L[part].location[k]));
-	  L[part].location[k] = L[part].location[k]+movement;
-
-	}
-	}*/
-  
   // Using cblas to do the subtraction
   float SOS;
+  std::normal_distribution<float> rdist(0.0,0.01);
   for(int part=0;part<P;part++)
     {
       cblas_saxpy(numComps-1,-1.0,Lmin[part].location.data(),1,LBAK1[part].location.data(),1);
       cblas_saxpy(numComps-1,-1.0,Lglobal.location.data(),1,LBAK2[part].location.data(),1);
-      r1 = 1.0;//distribution(generator);
-      r2 = 1.0;//distribution(generator);
-      //std::cout << r1 << " " << r2 << std::endl;
+      r1 = distribution(generator);
+      r2 = distribution(generator);
       cblas_sscal(numComps-1,-alpha*r1,LBAK1[part].location.data(),1);
       cblas_sscal(numComps-1,-beta*r2,LBAK2[part].location.data(),1);
       cblas_saxpy(numComps-1,1.0,LBAK1[part].location.data(),1,LBAK2[part].location.data(),1);
@@ -568,10 +554,10 @@ void PSOstep(std::vector<particleObject> &L,std::vector<particleObject> &Lmin,pa
       for(int comp=0;comp<numComps-1;comp++)
 	{
 	  randVec[comp] = distribution(generator);
-	  SOS = SOS + std::pow(randVec[comp],2);
 	}
       SOS = cblas_snrm2(numComps-1,randVec.data(),1);
       
+      randRadius = rdist(generator);
       cblas_sscal(numComps-1,randRadius/SOS,randVec.data(),1);
       cblas_saxpy(numComps-1,1.0,randVec.data(),1,L[part].location.data(),1);
     }
