@@ -7,6 +7,7 @@
 //#include <cmath>
 #include <algorithm>
 #include "utility.h"
+#include <numbers>
 
 
 void PGC(std::vector<float> dataArray, paramContainer params)
@@ -14,9 +15,11 @@ void PGC(std::vector<float> dataArray, paramContainer params)
   // Size of large arrays 
   int numEpochs = params.numEpochs;
   int numComps = params.numChannels;
+  
   std::vector<float> freq(params.numFreqs);
   for(int findx=0;findx<params.numFreqs;findx++)
-    freq[findx] = (params.fMax-params.fMin)/(params.numFreqs-1)*float(findx)+params.fMin;
+    freq[findx] = (params.freqLo-params.freqHi)/(params.numFreqs-1)*float(findx)+params.freqLo;
+
   // Check that this is an integer
   int epochPts = params.epochPts;
   std::vector<int> lagList(params.lagList);
@@ -41,7 +44,9 @@ void PGC(std::vector<float> dataArray, paramContainer params)
           }
       }
     }
-    
+  float dt = 1.0/((float)params.sampRate);
+  float argmtBASE = -2.0*M_PI*dt;
+  std::complex<float> argmt;
   std::vector<float> LS(2*numLags*numEpochs*(epochPts-maxLag),0.0);
   std::vector<float> RS(2*numEpochs*(epochPts-maxLag),0.0);
   std::vector<float> RS2(2*numEpochs*(epochPts-maxLag),0.0);
@@ -51,10 +56,19 @@ void PGC(std::vector<float> dataArray, paramContainer params)
   std::vector<float> resCOV(4,0.0);
   std::vector<float> Pmat(4,0.0);
   std::vector<float> Pinv(4,0.0);
-  
+  std::vector<float> resCOVinv(4,0.0);
+  std::vector<std::complex<float>> RI(4,std::complex<float>(0.0,0.0));
+  std::vector<std::complex<float>> Tf(4*params.numFreqs,std::complex<float>(0.0,0.0));
+  std::complex<float> alphaC(1.0,0.0);
+  std::complex<float> betazero(0.0,0.0);
+  std::vector<std::complex<float>> Swhole(4*params.numFreqs,std::complex<float>(0.0,0.0));
+  std::vector<std::complex<float>> Stmp(4,std::complex<float>(0.0,0.0));
+  float tmp;
   int info;
   int IPIV[2*numLags];
   const float alpha=1.0;
+  const float oneoverN = 1.0/((float)(numEpochs*(epochPts-maxLag)));
+  float wholeSpec;
   for(int pair1=0;pair1<numComps;pair1++)
     for(int pair2=0;pair2<numComps;pair2++)
       {
@@ -80,18 +94,17 @@ void PGC(std::vector<float> dataArray, paramContainer params)
 	  {
 	    cblas_scopy(2,RCOV.data()+col,2*numLags,A.data()+col*2,1);
 	  }
-
+	
 	// Compute the residuals
 	// RHS-A*LHS
 
 	cblas_sgemm(CblasColMajor,CblasNoTrans,CblasNoTrans,2,numEpochs*(epochPts-maxLag),2*numLags,
 		    -1.0,A.data(),2,LS.data(),2*numLags,1.0,RS.data(),2);
 
-	cblas_sgemm(CblasColMajor,CblasNoTrans,CblasTrans,2,2,numEpochs*(epochPts-maxLag),
-		    1.0,RS.data(),2,RS.data(),2,0.0,resCOV.data(),2);
 	
-      
-
+	cblas_sgemm(CblasColMajor,CblasNoTrans,CblasTrans,2,2,numEpochs*(epochPts-maxLag),
+		    oneoverN,RS.data(),2,RS.data(),2,0.0,resCOV.data(),2);
+	
 	Pmat[0]=1.0;
 	Pmat[1]=-resCOV[2]/resCOV[0];
 	Pmat[2]=0.0;
@@ -100,10 +113,11 @@ void PGC(std::vector<float> dataArray, paramContainer params)
 	Pinv[0]=1.0;
 	Pinv[1]=-Pmat[1];
 	Pinv[2]=0.0;
-	Pinv[3]=Pinv[3];
+	Pinv[3]=Pmat[3];
 
 	cblas_sgemm(CblasColMajor,CblasNoTrans,CblasNoTrans,2,2*numLags,2,
 		    1.0,Pmat.data(),2,A.data(),2,0.0,RCOV.data(),2);
+
 	for(int lag=0;lag<numLags;lag++)
 	  {
 	    cblas_sgemm(CblasColMajor,CblasNoTrans,CblasNoTrans,2,2,2,
@@ -115,15 +129,63 @@ void PGC(std::vector<float> dataArray, paramContainer params)
 		    1.0,Pmat.data(),2,RS.data(),2,0.0,RS2.data(),2);
 	// Compute covariance.
 	cblas_sgemm(CblasColMajor,CblasNoTrans,CblasTrans,2,2,numEpochs*(epochPts-maxLag),
-		    1.0,RS2.data(),2,RS2.data(),2,0.0,resCOV.data(),2); // Reusing resCOV
-
-
+		    oneoverN,RS2.data(),2,RS2.data(),2,0.0,resCOV.data(),2); // Reusing resCOV
+	//std::cout << "resCov matrix" << std::endl;
+	//std::cout << resCOV[0] << " " << resCOV[2] << std::endl;
+	//std::cout << resCOV[1] << " " << resCOV[3] << std::endl;
+	// Need to invert this
+	tmp = resCOV[0]*resCOV[3]-resCOV[1]*resCOV[2];
+	resCOVinv[0] = resCOV[3]/tmp;
+	resCOVinv[1] = -resCOV[1]/tmp;
+	resCOVinv[2] = -resCOV[2]/tmp;
+	resCOVinv[3] = resCOV[0]/tmp;
+	RI[0] = std::complex<float>(resCOVinv[0],0.0);
+	RI[1] = std::complex<float>(resCOVinv[1],0.0);
+	RI[2] = std::complex<float>(resCOVinv[2],0.0);
+	RI[3] = std::complex<float>(resCOVinv[3],0.0);
+	//std::cout << "resCovinv matrix" << std::endl;
+	//std::cout << resCOVinv[0] << " " << resCOVinv[2] << std::endl;
+	//std::cout << resCOVinv[1] << " " << resCOVinv[3] << std::endl;
+	
+	
 	for(int findx=0;findx<params.numFreqs;findx++)
 	  {
+	    Tf[findx*4]=std::complex<float>(1.0,0.0);
+	    Tf[findx*4+3]=std::complex<float>(1.0,0.0);
+
 	    for(int lag=0;lag<params.numLags;lag++)
 	      {
-		argmt = std::exp(std::complex<float>(0.0,argmtBASE*(float)lagList[lag]*freq[findex]));
+		argmt = -std::exp(std::complex<float>(0.0,argmtBASE*(float)lagList[lag]*freq[findx]));
+		cblas_caxpy(4,&argmt,A.data()+lag*4,1,Tf.data()+findx*4,1);
+	      }
+	    //std::cout << "Tf matrix " << std::endl;
+	    //std::cout << Tf[0] << " " << Tf[2] << std::endl;
+	    //std::cout << Tf[1] << " " << Tf[3] << std::endl;
+	    cblas_cgemm(CblasColMajor,CblasConjTrans,CblasNoTrans,2,2,2,
+			&alphaC,Tf.data()+findx*4,2,RI.data(),2,// Might want a complex array.
+			&betazero,Stmp.data(),2);
+	    //std::cout << "tmp matrix " << std::endl;
+	    //std::cout << Stmp[0] << " " << Stmp[2] << std::endl;
+	    //std::cout << Stmp[1] << " " << Stmp[3] << std::endl;
+	    cblas_cgemm(CblasColMajor,CblasNoTrans,CblasNoTrans,2,2,2,
+			&alphaC,Stmp.data(),2,Tf.data()+4*findx,2,
+			&betazero,Swhole.data()+4*findx,2);
+
+	    //std::cout << "whole mat " << std::endl;
+	    //std::cout << Swhole[0] << " " << Swhole[2] << std::endl;
+	    //std::cout << Swhole[1] << " " << Swhole[3] << std::endl;
+	    wholeSpec = (Swhole[findx*4]-Swhole[findx*4+2]*Swhole[findx*4+1]/Swhole[findx*4+3]).real();
+	    //std::cout << "whole spec = " << wholeSpec << std::endl;
+	  }
+
 	
+
+	/*	std::cout << "Tf f1" << std::endl;
+     
+	std::cout << Tf[0] << " " << Tf[2] << std::endl;
+	std::cout << Tf[1] << " " << Tf[3] << std::endl;
+	*/
+
       }
   return;
   }
@@ -155,7 +217,10 @@ int main()
   params.numChannels = 16;
   params.lagList = lagList;
   params.numEpochs = numEpochs;
-
+  params.numFreqs = 13;
+  params.freqLo = 8.0;
+  params.freqHi = 12.0;
+  params.sampRate = 500;
   PGC(dataArray,params);
   return 0;
 }
