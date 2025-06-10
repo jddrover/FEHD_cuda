@@ -8,7 +8,9 @@ struct paramContainer
 {
   std::string filename;
   std::string lagListFilename;
+  std::string transname;
   std::string outfolder;
+  int transnameFLAG;
   int outfolderFLAG;
   int filenameFLAG;
   int sampRate;
