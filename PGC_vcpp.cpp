@@ -1,18 +1,13 @@
 #include <cblas.h>
 #include <lapacke.h>
-#include <random>
 #include <vector>
 #include <iostream>
 #include <fstream>
 #include <complex>
-//#include <cmath>
 #include <algorithm>
 #include "utility.h"
-#include <numbers>
-#include <omp.h>
 #include <string>
-#include <array>
-#include <experimental/filesystem>
+
 std::vector<float> PGC(std::vector<float> dataArray, paramContainer params)
 {
   // Size of large arrays 
