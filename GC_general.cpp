@@ -1,9 +1,12 @@
 #include <cblas.h>
-#include <lapacke.h>
 #include <vector>
 #include <iostream>
 #include <fstream>
 #include <complex>
+#define lapack_complex_float std::complex<float>
+#define lapack_complex_float_real(z) z.real()
+#define lapack_complex_float_imag(z) z.imag()
+#include <lapacke.h>
 #include <algorithm>
 #include "utility.h"
 #include <string>
@@ -13,37 +16,44 @@ float GCgen(std::vector<float> dataArray, std::vector<int> caused, paramContaine
   float GC;
 
   // First, need to organize so that the caused components are on top.
+  
   int numCausedComps = caused.size();
+  int numCausalComps = params.numChannels-numCausedComps;
+
   std::vector<float> dataArraySorted(dataArray);
   int counterCaused=0;
   int counterNot=0;
+
   for(int comp=0;comp<params.numChannels;comp++)
     {
       if(std::find(caused.begin(),caused.end(),comp) != caused.end())
 	{
-	  cblas_scopy(params.numPoints,dataArray.data()+comp,params.numChannels,dataArraySorted.data()+counterCaused,params.numChannels);
+	  cblas_scopy(params.numPoints,dataArray.data()+comp,params.numChannels,
+		      dataArraySorted.data()+counterCaused,params.numChannels);
 	  counterCaused++;
 	}
       else
 	{
-	  cblas_scopy(params.numPoints,dataArray.data()+comp,params.numChannels,dataArraySorted.data()+counterNot+numCausedComps,
+	  cblas_scopy(params.numPoints,dataArray.data()+comp,params.numChannels,
+		      dataArraySorted.data()+counterNot+numCausedComps,
 		      params.numChannels);
 	  counterNot++;
 	}
     }
 
   dataArray = dataArraySorted;
-  
+
+  // Construct the frequency array
   std::vector<float> freq(params.numFreqs,0.0);
   for(int findx=0;findx<params.numFreqs;findx++)
     freq[findx] = (params.freqHi-params.freqLo)/(params.numFreqs-1)*float(findx)+params.freqLo;
 
+  // Sort the lag list. This is for when one specifies the lags. This has not been checked.
   std::sort(params.lagList.begin(),params.lagList.end());
   int maxLag = params.lagList[params.numLags-1];
   int IPIV[params.numChannels*params.numLags];
   
-
-
+  // Construct the AR model
   std::vector<float> RHS(params.numChannels*params.numEpochs*(params.epochPts-maxLag),0.0);
   std::vector<float> LHS(params.numChannels*params.numEpochs*params.numLags*(params.epochPts-maxLag),0.0);
 
@@ -56,14 +66,12 @@ float GCgen(std::vector<float> dataArray, std::vector<int> caused, paramContaine
       for(int lag=0;lag<params.numLags;lag++)
       {
         for(int tp=0;tp<params.epochPts-maxLag;tp++)
-          {
-            std::copy(dataArray.begin()+epoch*params.numChannels*params.epochPts+
-		      (maxLag-params.lagList[lag])*params.numChannels+tp*params.numChannels,
-		      dataArray.begin()+epoch*params.numChannels*params.epochPts+
-		      (maxLag-params.lagList[lag])*params.numChannels+(tp+1)*params.numChannels,
-		      LHS.begin()+epoch*params.numChannels*params.numLags*(params.epochPts-maxLag)+
-		      lag*params.numChannels+tp*params.numChannels*params.numLags);
-          }
+	  std::copy(dataArray.begin()+epoch*params.numChannels*params.epochPts+
+		    (maxLag-params.lagList[lag])*params.numChannels+tp*params.numChannels,
+		    dataArray.begin()+epoch*params.numChannels*params.epochPts+
+		    (maxLag-params.lagList[lag])*params.numChannels+(tp+1)*params.numChannels,
+		    LHS.begin()+epoch*params.numChannels*params.numLags*(params.epochPts-maxLag)+
+		    lag*params.numChannels+tp*params.numChannels*params.numLags);   
       }
     }
   std::vector<float> LCOV(params.numLags*params.numChannels*params.numLags*params.numChannels,0.0);
@@ -85,8 +93,7 @@ float GCgen(std::vector<float> dataArray, std::vector<int> caused, paramContaine
 			     RCOV.data(),params.numChannels*params.numLags);
   // At this stage, RCOV contains the autoregressive coefficients, transposed.
 
-  std::vector<float> A(params.numLags*params.numChannels*params.numChannels,0.0);
-
+ 
   // Compute the residuals
 
   cblas_sgemm(CblasColMajor,CblasTrans,CblasNoTrans,
@@ -95,23 +102,181 @@ float GCgen(std::vector<float> dataArray, std::vector<int> caused, paramContaine
 	      LHS.data(),params.numLags*params.numChannels,
 	      1.0,RHS.data(),params.numChannels);
 	      
-  // The covariance of the residuals
+  // Compute the covariance of the residuals
   std::vector<float> resCOV(params.numChannels*params.numChannels,0.0);
-  cblas_ssyrk(CblasColMajor,CblasUpper,CblasNoTrans,
+  cblas_ssyrk(CblasColMajor,CblasLower,CblasNoTrans,
 	      params.numChannels,params.numEpochs*(params.epochPts-maxLag),
 	      1.0,RHS.data(),params.numChannels,
 	      0.0,resCOV.data(),params.numChannels);
 
+  // I want to keep a copy of this
+  std::vector<float> RCC(resCOV);
+  
+  // P matrix is used to decorrelate the residuals. 
   std::vector<float> P(params.numChannels*params.numChannels,0.0);
   std::vector<float> Pinv(params.numChannels*params.numChannels,0.0);
 
+
+  //     [ I_caused       0    ]
+  // P = [                     ]
+  //     [    C       I_causal ]
   for(int diagentry=0;diagentry<params.numChannels;diagentry++)
     P[diagentry*params.numChannels+diagentry]=1.0;
 
-  // This is a little tricky - need an inverse of a symmetric matrix.
-  // I am thinking just do it, and fix later.
+  // The following sequence of commands forms the lower left portion of the matrix T:
+  // C=-Rcov[x1,x2]^T x Rcov[x1,x1]^-1
+  // The first two compute the inverse,
+  // The third does the matmul.
+  info = LAPACKE_ssytrf(LAPACK_COL_MAJOR,'L',numCausedComps,resCOV.data(),params.numChannels,IPIV);
+  info = LAPACKE_ssytri(LAPACK_COL_MAJOR,'L',numCausedComps,resCOV.data(),params.numChannels,IPIV);
+  cblas_ssymm(CblasColMajor,CblasRight,CblasLower,params.numChannels-numCausedComps, numCausedComps,
+	      -1.0,resCOV.data(),params.numChannels,
+	      resCOV.data()+numCausedComps,params.numChannels,
+	      0.0,P.data()+numCausedComps,params.numChannels);
+  // Using triangular mm since P is unit triangular
+  cblas_strmm(CblasColMajor,CblasRight,CblasLower,CblasTrans,CblasUnit,params.numChannels*params.numLags,params.numChannels,
+	      1.0,P.data(),params.numChannels,RCOV.data(),params.numChannels*params.numLags);
+
+  // Before we invert P, we want to Pcov(R)P^T
+
+  cblas_strmm(CblasColMajor,CblasLeft,CblasLower,CblasNoTrans,CblasUnit,
+	      params.numChannels,params.numChannels,
+	      1.0,P.data(),params.numChannels,
+	      resCOV.data(),params.numChannels);
+  cblas_strmm(CblasColMajor,CblasRight,CblasLower,CblasTrans,CblasUnit,
+	      params.numChannels,params.numChannels,
+	      1.0,P.data(),params.numChannels,
+	      resCOV.data(),params.numChannels); // resCOV is fully filled.
+  Pinv = P;
+  // now I want the inverse of P. P is lower unit triangular matrix.
+  info = LAPACKE_strtri(LAPACK_COL_MAJOR,'L','U',params.numChannels,Pinv.data(),params.numChannels);
+  // P is now the inverse.
+  // Finish the similarity transformation on the AR coefficents
+  for(int lag=0;lag<params.numLags;lag++)
+    {
+      cblas_strmm(CblasColMajor,CblasLeft,CblasLower,CblasTrans,CblasUnit,
+		  params.numChannels,params.numChannels,
+		  1.0,Pinv.data(),params.numChannels,
+		  RCOV.data()+lag*params.numChannels,params.numChannels*params.numLags);
+    }
+
+  // Declare the transfer function coeffients, and a complex array to hold AR coefficients
+  // (cblas complex routines shit the bed if you give them a float array)
+  std::vector<std::complex<float>> Tf(params.numChannels*params.numChannels,
+				      std::complex<float>(0.0,0.0));
+  std::vector<std::complex<float>> A(params.numLags*params.numChannels*params.numChannels,std::complex<float>(0.0,0.0));
+
+  for(int col=0;col<params.numLags*params.numChannels;col++)
+    for(int row=0;row<params.numChannels;row++)
+      A[col*params.numChannels+row]=std::complex<float>(RCOV[row*params.numLags*params.numChannels+col],0.0);
+
+
+
+
+
+  for(int col=1;col<params.numChannels;col++)
+    for(int row=0;row<col;row++)
+      {
+	//std::cout << resCOVcopy[row*params.numChannels+col] << std::endl;
+	RCC[col*params.numChannels+row] = RCC[row*params.numChannels+col];
+      }
+
+  cblas_strmm(CblasColMajor,CblasLeft,CblasLower,CblasNoTrans,CblasUnit,
+	      params.numChannels,params.numChannels,
+	      1.0,P.data(),params.numChannels,
+	      RCC.data(),params.numChannels);
+  cblas_strmm(CblasColMajor,CblasRight,CblasLower,CblasTrans,CblasUnit,
+	      params.numChannels,params.numChannels,
+	      1.0,P.data(),params.numChannels,
+	      RCC.data(),params.numChannels);
+
+       
+  // Now, make a complex copy
+  std::vector<std::complex<float>> resCC(params.numChannels*params.numChannels);
+  for(int indx=0;indx<params.numChannels*params.numChannels;indx++)
+    resCC[indx] = std::complex<float>(RCC[indx],0.0);
   
-  return (float)info;
+  float dt = 1.0/((float)params.sampRate);
+  float argmtBASE = -2.0*M_PI*dt;
+  std::complex<float> argmt;
+  std::vector<std::complex<float>> stmp1(params.numChannels*params.numChannels);
+  std::vector<std::complex<float>> stmp2(stmp1);
+  const std::complex<float> alphaComplex(1.0,0.0);
+  const std::complex<float> betaComplex(0.0,0.0);
+  std::vector<std::complex<float>> whole(numCausedComps*numCausedComps);
+  std::vector<std::complex<float>> partial(whole);
+  std::vector<float> wholeEigs(numCausedComps);
+  std::vector<float> partialEigs(numCausedComps);
+  float wProd,pProd;
+  float GCtotal = 0.0;
+  for(int f_indx=0;f_indx<params.numFreqs;f_indx++)
+    {
+      std::fill(Tf.begin(),Tf.end(),std::complex<float>(0.0,0.0));
+      for(int comp=0;comp<params.numChannels;comp++)
+	Tf[comp*params.numChannels+comp]=std::complex<float>(1.0,0.0);
+
+     
+      for(int lag=0;lag<params.numLags;lag++)
+	{
+	  argmt = -std::exp(std::complex<float>(0.0,argmtBASE*(float)(params.lagList[lag])*freq[f_indx]));
+	  cblas_caxpy(params.numChannels*params.numChannels,&argmt,
+		      A.data()+lag*params.numChannels*params.numChannels,1,
+		      Tf.data(),1);
+	}      
+      // Invert Tf (this truly is the path of least resistance)
+      info = LAPACKE_cgetrf(LAPACK_COL_MAJOR,params.numChannels,params.numChannels,
+			    Tf.data(),params.numChannels,IPIV);
+      info = LAPACKE_cgetri(LAPACK_COL_MAJOR,params.numChannels,Tf.data(),params.numChannels,IPIV);
+
+      // Compute the whole spectrum
+      cblas_cgemm(CblasColMajor,CblasNoTrans,CblasNoTrans,
+		  params.numChannels,params.numChannels,params.numChannels,
+		  &alphaComplex,Tf.data(),params.numChannels,
+		  resCC.data(),params.numChannels,
+		  &betaComplex,stmp1.data(),params.numChannels);
+      cblas_cgemm(CblasColMajor,CblasNoTrans,CblasConjTrans,
+		  params.numChannels,params.numChannels,params.numChannels,
+		  &alphaComplex,stmp1.data(),params.numChannels,
+ 		  Tf.data(),params.numChannels,
+		  &betaComplex,stmp2.data(),params.numChannels);
+
+      info = LAPACKE_cheev(LAPACK_COL_MAJOR,'N','U',numCausedComps,
+			   stmp2.data(),params.numChannels,wholeEigs.data());
+      
+      // Compute the partial spectrum
+      cblas_cgemm(CblasColMajor,CblasNoTrans,CblasNoTrans,
+		  numCausedComps,numCausedComps,numCausedComps,
+		  &alphaComplex,Tf.data(),params.numChannels,
+		  resCC.data(),params.numChannels,
+		  &betaComplex,stmp1.data(),params.numChannels);
+      cblas_cgemm(CblasColMajor,CblasNoTrans,CblasConjTrans,
+		  numCausedComps,numCausedComps,numCausedComps,
+		  &alphaComplex,stmp1.data(),params.numChannels,
+		  Tf.data(),params.numChannels,
+		  &betaComplex,stmp2.data(),params.numChannels);
+
+      info = LAPACKE_cheev(LAPACK_COL_MAJOR,'N','U',numCausedComps,
+			   stmp2.data(),params.numChannels,partialEigs.data());
+
+      wProd = 1.0;
+      pProd = 1.0;
+      
+      for(int eig=0;eig<numCausedComps;eig++)
+	{
+	  wProd = wProd*wholeEigs[eig];
+	  pProd = pProd*partialEigs[eig];
+	}
+      // Trapezoid rule - I don't see the point in anything higher order.
+      if(f_indx==0)
+	GCtotal = GCtotal + 0.5*std::log(wProd/pProd);
+      else if(f_indx==params.numFreqs-1)
+	GCtotal = GCtotal + 0.5*std::log(wProd/pProd);
+      else
+	GCtotal = GCtotal + std::log(wProd/pProd);
+    }
+  GCtotal = GCtotal*(freq[1]-freq[0]);
+	      
+  return GCtotal;
 }
 
 void loadData(std::string filename,int numComps,int numEpochs,int epochPts,std::vector<float> &dataArray)
@@ -343,21 +508,19 @@ int main(int argc, char** argv)
     lagList[lag] = lag+1;
  
   params.lagList = lagList;
-  std::vector<int> caused = {0,1,2,3,4,5,6,7,8}; // Note the zero indexing -  this is going to get some people. 
-  //std::vector<float> X(params.numChannels*params.numChannels,0.0);
+  std::vector<int> caused = {10,11,12,13,14,15};
    
   float GCval;
 
   GCval = GCgen(dataArray,caused,params);
   std::cout << GCval << std::endl;
-  //X = PGC(dataArray,params);
-  /*for(int row=0;row<params.numChannels;row++)
-    {
-      for(int col=0;col<params.numChannels;col++)
-	std::cout << X[col*params.numChannels+row] << " ";
-      std::cout << "\n";
-      }*/
-  //std::cout << std::endl;
+
+  caused = {13,14,15};
+  
+  GCval = GCgen(dataArray,caused,params);
+
+  std::cout << GCval << std::endl;
+
   return 0;
 }
 
