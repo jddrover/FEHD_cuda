@@ -508,14 +508,14 @@ int main(int argc, char** argv)
     lagList[lag] = lag+1;
  
   params.lagList = lagList;
-  std::vector<int> caused = {10,11,12,13,14,15};
+  std::vector<int> caused = {0};
    
   float GCval;
 
   GCval = GCgen(dataArray,caused,params);
   std::cout << GCval << std::endl;
 
-  caused = {13,14,15};
+  caused = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15};
   
   GCval = GCgen(dataArray,caused,params);
 
