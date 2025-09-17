@@ -434,35 +434,35 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
 	      minIndx = std::distance(candidates.begin(),min_element(candidates.begin(),candidates.end()));
 
 	      if(minIndx == 0) // Recycle these
-		if(minimumGC != particle)
-		  {
-		    resetList.push_back(particle); // Store the particle numbers to be reset.
-		    GCvalsReset.push_back(0.0); // This just adjusts the size, used below.
-		    for(int comp=0;comp<numComps-1;comp++) // Reset the angle array, and make a copy for the reset run.
-		      {
-		        angleArray[block][particle*(numComps-1)+comp] = (float)(rand()%314-157)/100.0f;
-			angleArrayReset.push_back(angleArray[block][particle*(numComps-1)+comp]);
-		      }
-		  }
+			if(minimumGC != particle)
+		  		{
+		    		resetList.push_back(particle); // Store the particle numbers to be reset.
+		    		GCvalsReset.push_back(0.0); // This just adjusts the size, used below.
+		    		for(int comp=0;comp<numComps-1;comp++) // Reset the angle array, and make a copy for the reset run.
+		      			{		
+		        			angleArray[block][particle*(numComps-1)+comp] = (float)(rand()%314-157)/100.0f;
+							angleArrayReset.push_back(angleArray[block][particle*(numComps-1)+comp]);
+		      			}
+		  		}
 	    
 	      if(minIndx == 1)
-		{
-		  GCvals[block][particle] = GCvals1[block][particle];
-		  std::copy(angleArray1[block].data()+particle*(numComps-1),angleArray1[block].data()+particle*(numComps-1)+numComps-1,
+			{
+		  		GCvals[block][particle] = GCvals1[block][particle];
+		  		std::copy(angleArray1[block].data()+particle*(numComps-1),angleArray1[block].data()+particle*(numComps-1)+numComps-1,
 			    angleArray[block].data()+particle*(numComps-1));
-		}
+			}
 	      if(minIndx == 2)
-		{
-		  GCvals[block][particle] = GCvals2[block][particle];
-		  std::copy(angleArray2[block].data()+particle*(numComps-1),angleArray2[block].data()+particle*(numComps-1)+numComps-1,
+			{
+		  		GCvals[block][particle] = GCvals2[block][particle];
+		  		std::copy(angleArray2[block].data()+particle*(numComps-1),angleArray2[block].data()+particle*(numComps-1)+numComps-1,
 			    angleArray[block].data()+particle*(numComps-1));
-		}
+			}
 	      if(minIndx == 3)
-		{
-		  GCvals[block][particle] = GCvals3[block][particle];
-		  std::copy(angleArray3[block].data()+particle*(numComps-1),angleArray3[block].data()+particle*(numComps-1)+numComps-1,
+			{
+		  		GCvals[block][particle] = GCvals3[block][particle];
+		  		std::copy(angleArray3[block].data()+particle*(numComps-1),angleArray3[block].data()+particle*(numComps-1)+numComps-1,
 			    angleArray[block].data()+particle*(numComps-1));
-		}
+			}
 	    }
 
 	  GCminIndex[block]=std::min_element(GCvals[block].begin(),GCvals[block].end())-GCvals[block].begin();
