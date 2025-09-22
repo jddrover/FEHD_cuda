@@ -28,6 +28,8 @@ struct paramContainer
   int numLags;
   int numLagsFLAG;
   int lagListFLAG;
+  int numCausedFLAG;
+  int numCausalFLAG;
   int numParticles;
   int numParticlesFLAG;
   float freqLo;
@@ -37,9 +39,15 @@ struct paramContainer
   int numFreqs;
   int numFreqsFLAG;
   bool verbose;
+  int numCaused;
+  int numCausal;
+  std::vector<int> causedComps;
+  std::vector<int> causalComps;
   std::vector<int> lagList;
   int STUCKCOUNT;
   int STUCKCOUNTFLAG;
+  std::string outputType;
+  int outputFLAG;
 } ;
 
 void setUpParameters(int argc,char** argv,paramContainer &params);
