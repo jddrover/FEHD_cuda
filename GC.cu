@@ -68,8 +68,8 @@ void granger(std::vector<float> angleArray,
   // Recall Q was stored as transposed matrices, so we use the
   // following gemm call to do all particles and lags at once.
 
-  const float alpha=1.0;
-  const float beta=0.0;
+  //const float alpha=1.0;
+  //const float beta=0.0;
 
   int grdsize2 =
   (int)(numComps*numComps*params.numLags*params.numParticles+blksize-1)/blksize; 
@@ -81,7 +81,7 @@ void granger(std::vector<float> angleArray,
 
   const dim3 blockSizeTF(blksize);
   const dim3 gridSizeTF(grdsize3);
-  const int memsizetf = sizeof(float2)*blksize;
+  //const int memsizetf = sizeof(float2)*blksize;
   float dt = 1.0f/(float)(params.sampRate);
 
   int grdsize4 =
@@ -121,39 +121,41 @@ void granger(std::vector<float> angleArray,
 
   // Using the angles in angles_dev, create the rotation matrices Q.
   generateRotationMatrices<<<gridSize,blockSize>>>(angles_dev,workArray.Qdev,numComps,params.numParticles);
+  // This might have given the transpose - check
+  // Outputs [Q1*,....,Qp*]
   // Create
-  // [A1^tQ1* A1^tQ2* ... A1^tQp*]
-  // [A2^tQ1* ...                ]
-  // [...                        ]
-  // [AL^tQ1* ...     ... AL^tQp*]
-  cublasSgemm(cublasH,CUBLAS_OP_T,CUBLAS_OP_N,numComps*params.numLags,numComps*params.numParticles,
-  	      numComps,&alpha,workArray.ARdev,numComps,workArray.Qdev,numComps,&beta,workArray.rotatedModels,
-	      numComps*params.numLags);
-  // Transpose each individual lag matrix
-  // [Q1A1 Q2A1 ... ... QpA1]
-  // [Q1A2 ...              ]
-  // [...                   ]
-  // [Q1AL ...  ... ... QpAL]
-  transposeBlockMatrices<<<gridSize2,blockSize>>>(workArray.rotatedModels,workArray.wArray,numComps,params.numParticles,params.numLags);
-  // Multiply, strided
-  // [Q1A1]     [Q2A1]    ... [QpA1]
-  // [ ...]Q1*  [... ]Q2* ... [... ]Qp*
-  // [Q1AL]     [Q2AL]    ... [QpAL]
-  cublasSgemmStridedBatched(cublasH,CUBLAS_OP_N,CUBLAS_OP_N,
-			    params.numLags*numComps,numComps,numComps,
-			    &alpha,
-			    workArray.wArray,numComps*params.numLags,params.numLags*numComps*numComps,
+  // workArray.AR holds the sums for each frequency
+  // Need the Q's to be complex capable.
+
+  cuComplex cu_alpha = make_cuComplex(1.0,0.0);
+  cuComplex cu_beta = make_cuComplex(0.0,0.0);
+  cublasCgemm(cublasH,CUBLAS_OP_C,CUBLAS_OP_N,
+	      params.numLags*numComps,params.numParticles*numComps,numComps,
+	      &cu_alpha,workArray.ARdev,numComps,
+	      workArray.Qdev,numComps,
+	      &cu_beta,workArray.rotatedModels,params.numLags*numComps);
+
+  transposeBlockMatrices<<<gridSize2,blockSize>>>(workArray.rotatedModels,workArray.wArray,numComps,params.numParticles,params.numFreqs);
+
+  cublasCgemmStridedBatched(cublasH,CUBLAS_OP_N,CUBLAS_OP_N,
+			    params.numFreqs*numComps,numComps,numComps,
+			    &cu_alpha,workArray.wArray,params.numFreqs*numComps,params.numFreqs*numComps*numComps,
 			    workArray.Qdev,numComps,numComps*numComps,
-			    &beta,
-			    workArray.rotatedModels,numComps*params.numLags,params.numLags*numComps*numComps,
+			    &cu_beta,workArray.rotatedModels,numComps*params.numFreqs,params.numFreqs*numComps*numComps,
 			    params.numParticles);
-  // Compute the inverse of the transfer function - numParticles * numFreqs complex matrices
-  // [Tfp1f1^-1, Tfp1f2^-1, ... , Tfp1fF^-1, Tfp2f1^-1, ... TfppfF^-1]
-  // See the function in kernels.cu for the details on how it works.
-  compTransferFunc<<<gridSizeTF,blockSizeTF,memsizetf>>>(workArray.rotatedModels,workArray.Tf,workArray.lagList_DEVICE,numComps,
-						       params.numParticles,params.freqLo,
-						       params.freqHi,params.numFreqs,
-						       params.numLags,dt);
+
+  // Form this into the long array.
+  blksize = 1024;
+  grdsize = (int)(params.numParticles*params.numFreqs*numComps*numComps+blksize-1)/blksize;
+  const dim3 blockReform(blksize);
+  const dim3 gridReform(grdsize);
+  
+  reformat<<<gridReform,blockReform>>>(workArray.rotatedModels,workArray.Tf,params,numComps);
+  
+
+  
+  
+
   // Compute (Tf Tf*)^-1=Tf*^-1 Tf^-1 - the inverse of the variance in the neighborhood of each frequency
   // Collectively the inverse power spectrum of the model. 
   cublasCgemmStridedBatched(cublasH,CUBLAS_OP_C,CUBLAS_OP_N,
@@ -267,17 +269,32 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
   orthonormalizeR(residuals, ortho_residuals, L); // This function is in mkARGPU.h
   // Apply the transformations - LAL^-1
   rotate_model(A, L); // Also in mkARGPU.h
-
+  /*
   // Convert the AR model format to a single vector so it can be copied etc.
-  std::vector<float> AR(params.numLags*numComps*numComps,0);
+  std::vector<std::complex<float>> AR(params.numLags*numComps*numComps,std::complex<float>(0.0,0.0));
   for(int lag=0;lag<params.numLags;lag++)
     for(int row=0;row<numComps;row++)
       for(int col=0;col<numComps;col++)
 	{
-	  AR[lag*numComps*numComps+col*numComps+row] = A.lagMatrices[lag].elements[col*numComps+row];
+	  AR[lag*numComps*numComps+col*numComps+row] = std::complex<float>(A.lagMatrices[lag].elements[col*numComps+row],0.0);
 	}
 
+  std::vector<std::complex<float>> Tfhost(params.numFreqs*numComps*numComps,std::complex<float>(0.0,0.0));
+  cuComplex alfa;
+  std::vector<float> freq(params.numFreqs,0.0);
 
+  
+  // One particle, identity rotation.
+  for(int findx=0;findx<params.numFreqs;findx++)
+    {
+      freq[findx] = (params.freqHi-params.freqLo)/(params.numFreqs-1)*float(findx)+params.freqLo;
+      for(int lag=0;lag<params.numLags;lag++)
+	{
+	  alfa = make_cuComplex(-2.0*M_PI*freq[findx]*lagList[lag]/params.sampRate,0.0);
+	  cblas_caxpy(numComps*numComps,&alfa,AR.data()+lag*numComps*numComps,1,Tfhost.data()+findx*numComps*numComps,1);
+	}
+    }				  
+					  
   
   // The step-sizes to check along the (-)gradient.
   std::vector<float> h = {0.001f, 0.01f, 0.1f};
@@ -323,7 +340,7 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
 
   // Allocate all of the arrays need for the GC function. 
   workForGranger workArray;
-  allocateParams(workArray,numComps,particleBlockSize,params,lagList,AR);
+  allocateParams(workArray,numComps,particleBlockSize,params,lagList,Tfhost);
    
   // Angle arrays.
   std::vector<std::vector<float>> angleArray;
@@ -506,9 +523,9 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
 
   std::copy(angleArray[minBlockNumber].data()+indexVal*(numComps-1),angleArray[minBlockNumber].data()+indexVal*(numComps-1)+numComps-1,bestAngle.begin());
 
-
-  freeWorkArray(workArray);
   
+  freeWorkArray(workArray);
+  */
   return;
  
 }

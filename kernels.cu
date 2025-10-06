@@ -1,10 +1,33 @@
 #include "kernels.h"
 #include <stdio.h>
 #include <cuComplex.h>
+#include "utility.h"
 
+
+// Reformat the transfer array
+__global__
+void reformat(float2 *A,float2 *B,paramContainer params,int numComps)
+{
+  const int idx = threadIdx.x + blockDim.x*blockIdx.x;
+  // idx will be the column major index
+  if(idx >= params.numParticles*params.numFreqs*numComps*numComps)
+    return;
+  
+  const int particle = int(idx/(params.numFreqs*numComps*numComps));
+  const int freq = int((idx-particle*params.numFreqs*numComps*numComps)/(numComps*numComps));
+  const int col = int((idx-(particle*params.numFreqs+freq)*numComps*numComps)/numComps);
+  const int row = int(idx-(particle*params.numFreqs+freq)*numComps*numComps-col*numComps);
+
+  B[particle*params.numFreqs*numComps*numComps+freq*numComps*numComps+col*numComps+row] =
+    A[particle*params.numFreqs*numComps*numComps+freq*numComps+col*params.numFreqs*numComps+row];
+
+  return;
+}
+			   
+  
 // Transpose individual block matrices. 
 __global__
-void transposeBlockMatrices(float *A, float *B, int M, int P, int L)
+void transposeBlockMatrices(float2 *A, float2 *B, int M, int P, int L)
 {
   const int idx = threadIdx.x+blockDim.x*blockIdx.x;
 
@@ -27,7 +50,7 @@ void transposeBlockMatrices(float *A, float *B, int M, int P, int L)
 
 // Angles as input, determine the rotation matrix for each particle.
 __global__
-void generateRotationMatrices(float *angleVars,float *Q_Array,int M,int numParticles){
+void generateRotationMatrices(float *angleVars,float2 *Q_Array,int M,int numParticles){
 
   const int particle = threadIdx.x+blockDim.x*blockIdx.x;
 
@@ -44,7 +67,8 @@ void generateRotationMatrices(float *angleVars,float *Q_Array,int M,int numParti
     {
       for (int j=0;j<M;j++)
 	{
-	  Q_Array[particle*M*M+i*M+j] = 0.0f;
+	  Q_Array[particle*M*M+i*M+j].x = 0.0f;
+	  Q_Array[particle*M*M+i*M+j].y = 0.0f;
 	}
     }
   
@@ -52,7 +76,7 @@ void generateRotationMatrices(float *angleVars,float *Q_Array,int M,int numParti
  // Put 1's down the diagonal.
   for(int i=0; i<M; i++)
     {
-      Q_Array[particle*M*M+i*(M+1)]=1.0f;
+      Q_Array[particle*M*M+i*(M+1)].x=1.0f;
     }
   
   for(int i=M-2; i>=0; i--) // Cycle through the angles. 
@@ -64,10 +88,10 @@ void generateRotationMatrices(float *angleVars,float *Q_Array,int M,int numParti
       for(int k=0;k<M;k++) // Do the matrix multiplication 
 	{
 	  
-	  Qcol1 = Q_Array[particle*M*M+k*M+i]; //Q(particle,row i, column k
-	  Qcol2 = Q_Array[particle*M*M+k*M+M-1];//(particle,row M-1,column k
-	  Q_Array[particle*M*M+i+k*M] = cosVal*Qcol1+sinVal*Qcol2;
-	  Q_Array[particle*M*M+(M-1)+k*M] = -sinVal*Qcol1+cosVal*Qcol2;
+	  Qcol1 = Q_Array[particle*M*M+k*M+i].x; //Q(particle,row i, column k
+	  Qcol2 = Q_Array[particle*M*M+k*M+M-1].x;//(particle,row M-1,column k
+	  Q_Array[particle*M*M+i+k*M].x = cosVal*Qcol1+sinVal*Qcol2;
+	  Q_Array[particle*M*M+(M-1)+k*M].x = -sinVal*Qcol1+cosVal*Qcol2;
 	  
 	  /*
 	  Qcol1 = Q_Array[particle*M*M+k*M+i]; //Q(particle,row i, column k
@@ -80,6 +104,9 @@ void generateRotationMatrices(float *angleVars,float *Q_Array,int M,int numParti
     }
   return;
 }
+
+
+
 // Computes the inverse of the transfer function. 
 __global__
 void compTransferFunc(float *ARmodels,float2 *Tf,int *lagList,int numComps,int numParticles,float fMin,float fMax,int numFreqs,int numLags,float deltaT){

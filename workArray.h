@@ -2,13 +2,14 @@
 #define WORKARRAY_H
 #include "utility.h"
 #include <vector>
+#include <complex>
 
 struct workForGranger
 {
   int lworkVal;
-  float *Qdev;
-  float *rotatedModels;
-  float *wArray;
+  float2 *Qdev;
+  float2 *rotatedModels;
+  float2 *wArray;
   float2 *Tf;
   float2 *Swhole;
   float2 *tmp;
@@ -21,9 +22,9 @@ struct workForGranger
   float *det_partial;
   float *dev_GC;
   int *lagList_DEVICE;
-  float *ARdev;
+  float2 *ARdev;
 };
 
-void allocateParams(workForGranger &,int numComps,int particleBlockSize,paramContainer params,std::vector<int> lagList,std::vector<float> AR);
+void allocateParams(workForGranger &,int numComps,int particleBlockSize,paramContainer params,std::vector<int> lagList,std::vector<std::complex<float>>);
 void freeWorkArray(workForGranger &);
 #endif
