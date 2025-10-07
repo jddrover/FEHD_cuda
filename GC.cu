@@ -118,7 +118,9 @@ void granger(std::vector<float> angleArray,
   cudaMemcpy(angles_dev,angleArray.data(),sizeof(float)*(numComps-1)*params.numParticles,
 	     cudaMemcpyHostToDevice);
 
-
+  // Things to check before this
+  // 1 did the AR model get put in and summed correctly.
+  
   // Using the angles in angles_dev, create the rotation matrices Q.
   generateRotationMatrices<<<gridSize,blockSize>>>(angles_dev,workArray.Qdev,numComps,params.numParticles);
   // This might have given the transpose - check
@@ -269,7 +271,7 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
   orthonormalizeR(residuals, ortho_residuals, L); // This function is in mkARGPU.h
   // Apply the transformations - LAL^-1
   rotate_model(A, L); // Also in mkARGPU.h
-  /*
+  
   // Convert the AR model format to a single vector so it can be copied etc.
   std::vector<std::complex<float>> AR(params.numLags*numComps*numComps,std::complex<float>(0.0,0.0));
   for(int lag=0;lag<params.numLags;lag++)
@@ -525,7 +527,7 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
 
   
   freeWorkArray(workArray);
-  */
+  
   return;
  
 }
