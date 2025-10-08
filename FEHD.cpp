@@ -1,5 +1,4 @@
 #include <iostream>
-
 #include "FEHD.h"
 #include "dataContainers.h"
 #include "mkARGPU.h"
