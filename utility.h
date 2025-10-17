@@ -35,6 +35,10 @@ struct paramContainer
   int numFreqs;
   int numFreqsFLAG;
   bool verbose;
+  std::string transname;
+  int transnameFLAG;
+  int outputFLAG;
+  std::string outputType;
   std::vector<int> lagList;
   int STUCKCOUNT;
   int STUCKCOUNTFLAG;

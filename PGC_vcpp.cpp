@@ -14,32 +14,91 @@ struct GCgrids
   std::vector<std::vector<float>> intGrid;
 };
 
+void transform_matrices(std::vector<float> &ARm,std::vector<float> &covMat)
+{
+
+  int M = covMat.size(); // M is going to be 4.
+  int L = ARm.size()/M;
+  M = sqrt(M);
+
+
+  // Construct Pmat
+  std::vector<float> Pmat(4,0.0);
+  std::vector<float> Pinv(4,0.0);
+  Pmat[0]=1.0;
+  Pmat[1]=-covMat[2]/covMat[0];
+  Pmat[2]=0.0;
+  Pmat[3]=1.0;
+	// The inverse
+  Pinv[0]=1.0;
+  Pinv[1]=-Pmat[1];
+  Pinv[2]=0.0;
+  Pinv[3]=Pmat[3];
+  
+  // Transform the AR coefficients
+
+  std::vector<float> Atmp(ARm);
+  std::vector<float> COVtmp(covMat);
+  
+  cblas_sgemm(CblasColMajor,CblasNoTrans,CblasTrans,M,M*L,M,
+	      1.0,Pmat.data(),M,ARm.data(),M*L,0.0,Atmp.data(),M);
+	
+  for(int lag=0;lag<L;lag++)
+    {
+      cblas_sgemm(CblasColMajor,CblasNoTrans,CblasNoTrans,M,M,M,
+		  1.0,Atmp.data()+lag*M*M,M,Pinv.data(),M,0.0,ARm.data()+lag*M*M,M);
+    }
+
+  // Determine the new covariance matrix
+  cblas_sgemm(CblasColMajor,CblasNoTrans,CblasNoTrans,M,M,M,
+	      1.0,Pmat.data(),M,covMat.data(),M,
+	      0.0,COVtmp.data(),M);
+  cblas_sgemm(CblasColMajor,CblasNoTrans,CblasTrans,M,M,M,
+	      1.0,COVtmp.data(),M,Pmat.data(),M,
+	      0.0,covMat.data(),M);
+
+  return;
+}
+
 
 GCgrids PGC(std::vector<float> dataArray, paramContainer params)
 {
   // Size of large arrays 
   int numEpochs = params.numEpochs;
   int numComps = params.numChannels;
-  const int numF = params.numFreqs;
-  std::vector<float> Xout(numComps*numComps,0.0);
-  std::vector<std::vector<float>> integrand(numComps*numComps);
-  GCgrids gridout;
-  std::vector<float> singleInt(numF);
-  std::vector<float> freq(params.numFreqs);
-  for(int findx=0;findx<params.numFreqs;findx++)
-    freq[findx] = (params.freqHi-params.freqLo)/(params.numFreqs-1)*float(findx)+params.freqLo;
-
   int epochPts = params.epochPts;
+
+  // Sort and copy the lag list
   std::vector<int> lagList(params.lagList);
   std::sort(lagList.begin(),lagList.end());
   int numLags = lagList.size();
   int maxLag = lagList[numLags-1];
+  float dt = 1.0/((float)params.sampRate);
+
+  // The output (either a heatmap or the integrands - gridout carries both).
+  std::vector<float> Xout(numComps*numComps,0.0);
+  std::vector<std::vector<float>> integrand(numComps*numComps);
+  GCgrids gridout;
+
+  // Make the frequency grid.
+  std::vector<float> freq(params.numFreqs);
+  for(int findx=0;findx<params.numFreqs;findx++)
+    freq[findx] = (params.freqHi-params.freqLo)/(params.numFreqs-1)*float(findx)+params.freqLo;
+  
+  // Declarations of large arrays to hold the left and right Yule Walker coefficients.  
   std::vector<float> RHS(numComps*numEpochs*(epochPts-maxLag),0.0);
   std::vector<float> LHS(numComps*numLags*numEpochs*(epochPts-maxLag),0.0);
+  // Hold the 2-d subsets.
+  std::vector<float> LS(2*numLags*numEpochs*(epochPts-maxLag),0.0);
+  std::vector<float> RS(2*numEpochs*(epochPts-maxLag),0.0);
+  // Hold the covariances.
+  std::vector<float> LCOV(2*numLags*2*numLags,0.0);
+  std::vector<float> RCOV(2*numLags*2,0.0);
+  
+  // Storage for the Granger Causalities at each frequency.
   std::vector<float> GCatFreq(params.numFreqs,0.0);
 
-  // This loop makes the first half of the yule walker type equation.
-  // Goal is to put up timing routines and make this loop faster.
+  // Set up lagged version.
 #pragma omp parallel for default(shared) 
   for(int epoch=0;epoch<numEpochs;epoch++)
     {
@@ -56,20 +115,16 @@ GCgrids PGC(std::vector<float> dataArray, paramContainer params)
           }
       }
     }
-  float dt = 1.0/((float)params.sampRate);
+  
   //std::cout << "step size" << dt << std::endl;
   float argmtBASE = -2.0*M_PI*dt;
   std::complex<float> argmt;
-  std::vector<float> LS(2*numLags*numEpochs*(epochPts-maxLag),0.0);
-  std::vector<float> RS(2*numEpochs*(epochPts-maxLag),0.0);
-  std::vector<float> RS2(2*numEpochs*(epochPts-maxLag),0.0);
-  std::vector<float> LCOV(2*numLags*2*numLags,0.0);
-  std::vector<float> RCOV(2*numLags*2,0.0);
-  std::vector<float> A(4*numLags,0.0);
+
+
+
   std::vector<float> resCOV(4,0.0);
-  std::vector<float> Pmat(4,0.0);
-  std::vector<float> Pinv(4,0.0);
-  std::vector<float> resCOVinv(4,0.0);
+
+
   std::vector<std::complex<float>> RI(4,std::complex<float>(0.0,0.0));
   std::vector<std::complex<float>> Tf(4*params.numFreqs,std::complex<float>(0.0,0.0));
   std::complex<float> alphaC(1.0,0.0);
@@ -85,6 +140,9 @@ GCgrids PGC(std::vector<float> dataArray, paramContainer params)
   float wholeSpec;
   float totalGC;
   std::vector<std::complex<float>> RCOVcomplex(4*numLags,std::complex<float>(0.0,0.0));
+  std::vector<float> RCOVflip(4*numLags,0.0);
+  std::vector<float> resCOVflip(4,0.0);
+  std::vector<std::complex<float>> ARcoeff(4*numLags,std::complex<float>(0.0,0.0));
   for(int pair1=0;pair1<numComps;pair1++)
     for(int pair2=0;pair2<numComps;pair2++)
       {
@@ -150,53 +208,42 @@ GCgrids PGC(std::vector<float> dataArray, paramContainer params)
 
 	// And compute the covariance matrix.
 	// Could halve the effort here, this is a rank update.
+	// 
 	cblas_sgemm(CblasColMajor,CblasNoTrans,CblasTrans,2,2,numEpochs*(epochPts-maxLag),
 		    oneoverN,RS.data(),2,RS.data(),2,0.0,resCOV.data(),2);
 
-	// Create the matrix to decorrelate the residuals
-	Pmat[0]=1.0;
-	Pmat[1]=-resCOV[2]/resCOV[0];
-	Pmat[2]=0.0;
-	Pmat[3]=1.0;
-	// The inverse
-	Pinv[0]=1.0;
-	Pinv[1]=-Pmat[1];
-	Pinv[2]=0.0;
-	Pinv[3]=Pmat[3];
+	// The information up to this point can be used twice, by flipping it upside down.
 
-	// Transform the AR coefficients
-	cblas_sgemm(CblasColMajor,CblasNoTrans,CblasTrans,2,2*numLags,2,
-		    1.0,Pmat.data(),2,RCOV.data(),2*numLags,0.0,A.data(),2);
+	/*
+	  RCOVflip = RCOV;
+	  cblas_sswap(numLags*numComps,RCOVflip.data(),1,RCOVflip.data()+numLags*2,1);
+	  resCOVflip = resCOV;
+	  tmp = resCOVflip[0];
+	  resCOVflip[0] = resCOVflip[3];
+	  resCOVflip[3] = tmp;
+	*/
 	
-	for(int lag=0;lag<numLags;lag++)
-	  {
-	    cblas_sgemm(CblasColMajor,CblasNoTrans,CblasNoTrans,2,2,2,
-			1.0,A.data()+lag*4,2,Pinv.data(),2,0.0,RCOV.data()+lag*4,2);
-	  }
-
-	// Determine the new covariance matrix
-	cblas_sgemm(CblasColMajor,CblasNoTrans,CblasNoTrans,2,2,2,
-		    1.0,Pmat.data(),2,resCOV.data(),2,
-		    0.0,resCOVinv.data(),2);
-	cblas_sgemm(CblasColMajor,CblasNoTrans,CblasTrans,2,2,2,
-		    1.0,resCOVinv.data(),2,Pmat.data(),2,
-		    0.0,resCOV.data(),2);
+	// PAP^-1 and PCP^T. Called by reference, so both arguments change.
+	transform_matrices(RCOV,resCOV);
 
 	// Explicitly compute the inverse of the covariance matrix.
 	tmp = resCOV[0]*resCOV[3]-resCOV[1]*resCOV[2];
-
+	/*
 	resCOVinv[0] = (resCOV[3]/tmp)*(oneoverN);
 	resCOVinv[1] = 0.0;
 	resCOVinv[2] = 0.0;
 	resCOVinv[3] = resCOV[0]/tmp*oneoverN;
+	*/	
 	// Make a complex version.
-	RI[0] = std::complex<float>(resCOVinv[0],0.0);
-	RI[1] = std::complex<float>(resCOVinv[1],0.0);
-	RI[2] = std::complex<float>(resCOVinv[2],0.0);
-	RI[3] = std::complex<float>(resCOVinv[3],0.0);
-	// Fill it.
+	RI[0] = std::complex<float>(resCOV[3]/tmp*oneoverN,0.0);
+	RI[1] = std::complex<float>(0.0,0.0);
+	RI[2] = std::complex<float>(0.0,0.0);
+	RI[3] = std::complex<float>(resCOV[0]/tmp*oneoverN,0.0);
+
+
+	// ARcoeffs
 	for(int indx=0;indx<RCOV.size();indx++)
-	  RCOVcomplex[indx] = std::complex<float>(RCOV[indx],0.0);
+	  ARcoeff[indx] = std::complex<float>(RCOV[indx],0.0);
 
 	
 	std::fill(Tf.begin(),Tf.end(),std::complex<float>(0.0,0.0));
@@ -213,7 +260,7 @@ GCgrids PGC(std::vector<float> dataArray, paramContainer params)
 	    for(int lag=0;lag<params.numLags;lag++)
 	      {
 		argmt = -std::exp(std::complex<float>(0.0,argmtBASE*(float)(lagList[lag])*freq[findx]));
-		cblas_caxpy(4,&argmt,RCOVcomplex.data()+lag*4,1,Tf.data()+findx*4,1);
+		cblas_caxpy(4,&argmt,ARcoeff.data()+lag*4,1,Tf.data()+findx*4,1);
 	      }
 	    
 	    // S^-1=TF^-* E^-1 TF^-1
