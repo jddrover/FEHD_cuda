@@ -199,6 +199,7 @@ GCgrids PGC(std::vector<float> dataArray, paramContainer params)
 	// Solve the linear systems AX=B, where A is symmetric.
 	info = LAPACKE_ssysv(LAPACK_COL_MAJOR,'U',2*numLags,2,LCOV.data(),2*numLags,IPIV,
 			     RCOV.data(),2*numLags);
+
 	
 	// Compute the residuals
 	// RHS-A*LHS
