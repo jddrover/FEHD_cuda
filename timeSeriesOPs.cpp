@@ -130,7 +130,11 @@ void PCA(dataList DS,dataList &PC, matrix &transMat)
   int epochPts = DS.epochArray[0].timePointArray.size();
   int numComps = DS.epochArray[0].timePointArray[0].dataVector.size();
   int numPoints = numEpochs*epochPts;
-
+  std::cout << "numEpochs = " << numEpochs << "\n" <<
+    "epochPts = " << epochPts << "\n" <<
+    "numComps = " << numComps << "\n" <<
+    "numPoints = " << numPoints << std::endl;
+    
   float *dataArray = new float[numEpochs*epochPts*numComps];
 
   const float alpha=1.0f;
@@ -153,10 +157,38 @@ void PCA(dataList DS,dataList &PC, matrix &transMat)
   float *sMat = new float[numComps];
   float *uMat = new float[numComps*numComps];
   float *vMatT = new float[numComps*numComps];
+  int info;
+  std::cout << "going in" << std::endl;
+  for(int row=0;row<numComps;row++)
+    {
+      for(int col=0;col<numComps;col++)
+	{
+	  std::cout << covMat[col*numComps+row] << " ";
+	}
+      std::cout << "\n";
+    }
   
-  LAPACKE_sgesvd(LAPACK_COL_MAJOR,'A','A',numComps,numComps,covMat,numComps,sMat,uMat,numComps,
-		 vMatT,numComps,superb);
-
+  info = LAPACKE_sgesvd(LAPACK_COL_MAJOR,'A','A',numComps,numComps,covMat,numComps,sMat,uMat,numComps,
+			vMatT,numComps,superb);
+  if(info != 0)
+    {
+      std::cout << "info = " << info << std::endl;
+      std::cout << "SVD problem" << std::endl;
+      exit(0);
+    }
+  /*
+  for(int comp=0;comp<numComps;comp++)
+    {
+      std::cout << sMat[comp] << std::endl;
+    }
+  for(int row=0;row<numComps;row++)
+    {
+      for(int col=0;col<numComps;col++)
+	{
+	  std::cout << uMat[col*numComps+row] << " ";
+	}
+      std::cout << std::endl;
+      }*/
   // Now apply U' to the data
 
   // Set aside some space for the principal components.

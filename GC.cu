@@ -1,3 +1,4 @@
+#include <iostream>
 #include "GC.h"
 #include "dataContainers.h"
 #include "utility.h"
@@ -262,9 +263,20 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
   
   // Orthonormalize the residuals using the SVD.
   dataList ortho_residuals;
-
+  std::cout << "right out of mkARGPU" << std::endl;
+  std::cout << A.lagMatrices[0].elements[0] << std::endl;
   // Obtain the transformation that orthonormalizes the residual time series.
   orthonormalizeR(residuals, ortho_residuals, L); // This function is in mkARGPU.h
+  //for(int row=0;row<numComps;row++)
+  //  {
+  //    for(int col=0;col<numComps;col++)
+  //	{
+  //	  std::cout << L.elements[col*numComps+row];
+  //	}
+  //  std::cout << "\n";
+  //  }
+
+
   // Apply the transformations - LAL^-1
   rotate_model(A, L); // Also in mkARGPU.h
 

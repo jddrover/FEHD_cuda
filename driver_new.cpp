@@ -74,6 +74,10 @@ int main(int argc, char** argv)
   matrix Lmat;
 
   PCA(dataArray,PC,Lmat);
+  //std::cout << "time point of pcs" << std::endl;
+  
+  //for(int comp=0;comp<params.numChannels;comp++)
+  //  std::cout << PC.epochArray[0].timePointArray[0].dataVector[comp] << std::endl;
   
   std::vector<int> compsToRemove; // Empty, fill below
 
