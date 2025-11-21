@@ -2,6 +2,21 @@
 #include <stdio.h>
 #include <cuComplex.h>
 
+// Do the scaling for the S, including removing singular values that are too small.
+
+__global__
+void scaleByS(float *S,float *X,int m,int n)
+{
+  const int idx = threadIdx.x+blockDim.x*blockIdx.x;
+
+  if(idx >= m*n) {return;}
+
+  int rowIndx = idx-int(idx/m)*m;
+  
+  X[idx] = X[idx]/S[rowIndx];    
+}
+
+
 // Transpose individual block matrices. 
 __global__
 void transposeBlockMatrices(float *A, float *B, int M, int P, int L)

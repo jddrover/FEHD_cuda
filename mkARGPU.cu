@@ -1,3 +1,4 @@
+#include <iostream>
 #include "dataContainers.h"
 #include "mkARGPU.h"
 #include <vector>
@@ -14,8 +15,8 @@ void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList 
   int numComps = dataArray.epochArray[0].timePointArray[0].dataVector.size();
   //int numPoints = numEpochs*epochPts;
   
-  matrix LHS;
-  matrix RHS;
+  //matrix LHS;
+  //matrix RHS;
 
   // We want maxLag, not numLags
   
@@ -24,34 +25,40 @@ void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList 
   // Sort the lag list in reverse order, so everything matches up without changing a lot.
   //printf("max lag= %i \n",maxLag);
   std::sort(lagList.begin(),lagList.end(), std::greater<int>());
+
+
+  // Change this so that it is the transpose of this.
+
+  std::vector<float> RHS((epochPts-maxLag)*numEpochs*numComps,0.0);
+  std::vector<float> LHS((epochPts-maxLag)*numEpochs*numComps*lagList.size(),0.0);
   
+  int epochAdj = epochPts-maxLag;
+  int tpUse;
   for(int epoch=0;epoch<numEpochs;epoch++)
-      {
+    {
       for(int tp=maxLag;tp<epochPts;tp++)
 	{
-	  RHS.elements.insert(RHS.elements.end(),
-			      dataArray.epochArray[epoch].timePointArray[tp].dataVector.begin(),
-			      dataArray.epochArray[epoch].timePointArray[tp].dataVector.end());
-	}
-
-      for(int tp=0;tp<epochPts-maxLag;tp++)
-	{
-	  for(int lagIndx=0;lagIndx<lagList.size();lagIndx++)
+	  tpUse = tp - maxLag;
+	  for(int comp=0;comp<numComps;comp++)
 	    {
-	      tpoint = tp + maxLag-lagList[lagIndx];
-	      LHS.elements.insert(LHS.elements.end(),
-				  dataArray.epochArray[epoch].timePointArray[tpoint].dataVector.begin(),
-				  dataArray.epochArray[epoch].timePointArray[tpoint].dataVector.end());
+	      RHS[epoch*epochAdj+tpUse+comp*numEpochs*epochAdj]=
+		dataArray.epochArray[epoch].timePointArray[tp].dataVector[comp];
 	    }
 	}
-
-      }
-
-  // Make some copies (probably some of them are unnecessary.
-  std::vector<float> LHSvec(LHS.elements);
-  std::vector<float> RHSvec(RHS.elements);
-  //std::vector<float> LHSvecBAK(LHS.elements);
-  //std::vector<float> RHSvecBAK(RHS.elements);
+      for(int lagIndx=0;lagIndx<lagList.size();lagIndx++)
+	{
+	  for(int tp=0;tp<epochAdj;tp++)
+	    {
+	      tpUse = tp+maxLag-lagList[lagIndx];
+	      for(int comp=0;comp<numComps;comp++)
+		{
+		  LHS[epoch*epochAdj+tp+lagIndx*numComps*numEpochs*epochAdj+
+		      comp*numEpochs*epochAdj]=
+		    dataArray.epochArray[epoch].timePointArray[tpUse].dataVector[comp];
+		}
+	    }
+	}
+    }
 
   int numLags = lagList.size();
   
@@ -62,69 +69,91 @@ void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList 
   const float alpha = 1.0f;
   const float beta = 0.0f;
 
-  float *LHSvec_DEVICE;
-  float *RHSvec_DEVICE;
-  float *LHScov_DEVICE;
-  float *RHScov_DEVICE;
+  float *LHS_DEVICE = nullptr;
+  float *RHS_DEVICE = nullptr;
+  float *LHS_DEVICE_BACKUP = nullptr; // gesvd destroys the input, and we need it later.
 
-  cudaMalloc(&LHSvec_DEVICE,sizeof(float)*LHSvec.size());
-  cudaMalloc(&RHSvec_DEVICE,sizeof(float)*RHSvec.size());
-  cudaMemcpy(LHSvec_DEVICE,LHSvec.data(),sizeof(float)*LHSvec.size(),cudaMemcpyHostToDevice);
-  cudaMemcpy(RHSvec_DEVICE,RHSvec.data(),sizeof(float)*RHSvec.size(),cudaMemcpyHostToDevice);
-  
-  cudaMalloc(&LHScov_DEVICE,sizeof(float)*numComps*numComps*numLags*numLags);
-  cudaMalloc(&RHScov_DEVICE,sizeof(float)*numComps*numComps*numLags);
+  cudaMalloc(&LHS_DEVICE,sizeof(float)*LHS.size());
+  cudaMalloc(&RHS_DEVICE,sizeof(float)*RHS.size());
+  cudaMalloc(&LHS_DEVICE_BACKUP,sizeof(float)*LHS.size());
+  cudaMemcpy(LHS_DEVICE,LHS.data(),sizeof(float)*LHS.size(),cudaMemcpyHostToDevice);
+  cudaMemcpy(RHS_DEVICE,RHS.data(),sizeof(float)*RHS.size(),cudaMemcpyHostToDevice);
+
+  cublasScopy(LHS.size(),LHS_DEVICE,1,LHS_DEVICE_BACKUP,1);
+  // Create svd with this.
 
   cublasHandle_t cublasH = 0;
   cublasCreate(&cublasH);
-
-  //cublasStatus_t errChk; // Put this in if there is a problem.
-  // This can be changed to a rank update function - make sure uplo is upper.
-
-  const cublasFillMode_t uplo = CUBLAS_FILL_MODE_UPPER;
-  cublasSgemm(cublasH,CUBLAS_OP_N,CUBLAS_OP_T,mval,nval,kval,
-	      &alpha,LHSvec_DEVICE,mval,LHSvec_DEVICE,mval,
-	      &beta,LHScov_DEVICE,mval);
-
-
-  // This one needs to stay the same.
-  cublasSgemm(cublasH,CUBLAS_OP_N,CUBLAS_OP_T,mval,numComps,kval,
-	      &alpha, LHSvec_DEVICE,mval, RHSvec_DEVICE,numComps,
-	      &beta, RHScov_DEVICE,mval);
-
 
   cusolverDnHandle_t cusolverH = NULL;
   cusolverDnCreate(&cusolverH);
     
   int Lwork=0;
   // This is already written to use a symmetric matrix, so the output from above
-  // Can be brought down directly. 
-  cusolverDnSpotrf_bufferSize(cusolverH, uplo, numComps, LHScov_DEVICE, numComps, &Lwork);
-	
+  // Can be brought down directly.
+
+  cusolverDnSgesvd_bufferSize(cusolverH,numEpochs*epochAdj,numLags*numComps,&Lwork);
+   
   float *Workspace;
   cudaMalloc(&Workspace,sizeof(float)*Lwork);
-  int *devInfo;
+
+  int m = numEpochs*epochAdj;
+  int n = numLags*numComps;
+
+  float *d_rwork = nullptr; // This is an option.
+  int *devInfo = nullptr;
   cudaMalloc(&devInfo,sizeof(int));
-  // Need some error checking here.
-  cusolverDnSpotrf(cusolverH, uplo, mval, LHScov_DEVICE, mval, Workspace, Lwork, devInfo);
+
+  float *U = nullptr;
+  float *S = nullptr;
+  float *VT = nullptr;
+
+  cudaMalloc(&U,sizeof(float)*m*n);
+  cudaMalloc(&S,sizeof(float)*n);
+  cudaMalloc(&VT,sizeof(float)*n*n);
+
   
-  cusolverDnSpotrs(cusolverH, uplo, mval, numComps, LHScov_DEVICE, mval, RHScov_DEVICE, mval, devInfo);
+  
+  cusolverDnSgesvd(cusolverH,'S','S',m,n,
+		   LHS_DEVICE,m,Sdiag,U,m,VT,n,
+		   Workspace,Lwork,d_rwork,devInfo);
+		   
+  float *UTb = nullptr;
+  cudaMalloc(&UTb,sizeof(float)*n*numComps);
+
+  cublasSgemm(cublasH,CUBLAS_OP_T,CUBLAS_OP_N,n,m,numComps,
+	      &alphaY,U,m,RHS_device,m,
+	      &betaY,UTb,n);
+
+  int blksize = 1024;
+  int grdsize = (int)(m*n+blksize-1)/blksize;
+  const dim3 blockSize(blksize);
+  const dim3 gridSize(grdsize);
+
+  scaleByS<<<gridSize,blockSize>>>(S,UTb,n,numComps);
+
+  float *Adev = nullptr;
+  cudaMalloc(&Adev,sizeof(float)*n*numComps); 
+  cublasSgemm(cublasH,CUBLAS_OP_T,CUBLAS_OP_N,n,n,numComps,
+	      &alphaY,VT,n,UTb,n,
+	      &betaY,Adev,n);
 
   std::vector<float> A_result(numLags*numComps*numComps,0);
-  cudaMemcpy(A_result.data(),RHScov_DEVICE,sizeof(float)*numComps*numComps*numLags,cudaMemcpyDeviceToHost);
+  cudaMemcpy(A_result.data(),Adev,sizeof(float)*n*numComps,cudaMemcpyDeviceToHost);
 
   const float alphaRes = -1.0f;
   const float betaRes = 1.0f;
   
-  cublasSgemm(cublasH,CUBLAS_OP_T,CUBLAS_OP_N,numComps,kval,mval,
-	      &alphaRes, RHScov_DEVICE, mval, LHSvec_DEVICE, mval,
-	      &betaRes, RHSvec_DEVICE, numComps);
-
-  std::vector<float> residualsTmp(numComps*numEpochs*(epochPts-maxLag),0);
-
-  cudaMemcpy(residualsTmp.data(),RHSvec_DEVICE,sizeof(float)*numComps*numEpochs*(epochPts-maxLag),cudaMemcpyDeviceToHost);
-
+  cublasSgemm(cublasH,CUBLAS_OP_N,CUBLAS_OP_N,m,n,numComps,
+	      &alphaRes,LHS_DEVICE_BACKUP,m, Adev,n,
+	      &betaRes, RHS_DEVICE,m);
+  // RHS_DEVICE now contains the residuals.
   
+  std::vector<float> residualsTmp(m*numComps,0);
+
+  cudaMemcpy(residualsTmp.data(),RHS_DEVICE,sizeof(float)*numComps*m,cudaMemcpyDeviceToHost);
+
+  // This data list stuff is a pain in the ass. 
   convertRawArrayToDataList(residualsTmp.data(),R,numComps,epochPts-maxLag, numEpochs); 
 
   matrix lagTmp;

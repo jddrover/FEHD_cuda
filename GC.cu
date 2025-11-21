@@ -259,6 +259,9 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
   std::sort(lagList.begin(),lagList.end());
 
   mkARGPU(dataArray, lagList, A, residuals);
+
+
+  
   
   // Orthonormalize the residuals using the SVD.
   dataList ortho_residuals;
@@ -268,6 +271,8 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
   // Apply the transformations - LAL^-1
   rotate_model(A, L); // Also in mkARGPU.h
 
+  
+  
   // Convert the AR model format to a single vector so it can be copied etc.
   std::vector<float> AR(params.numLags*numComps*numComps,0);
   for(int lag=0;lag<params.numLags;lag++)
@@ -277,6 +282,7 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
 	  AR[lag*numComps*numComps+col*numComps+row] = A.lagMatrices[lag].elements[col*numComps+row];
 	}
 
+  
 
   
   // The step-sizes to check along the (-)gradient.
