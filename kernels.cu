@@ -10,7 +10,7 @@ void scaleByS(float *S,float *X,int m,int n)
   const int idx = threadIdx.x+blockDim.x*blockIdx.x;
 
   if(idx >= m*n) {return;}
-
+  
   int rowIndx = idx-int(idx/m)*m;
   
   X[idx] = X[idx]/S[rowIndx];    

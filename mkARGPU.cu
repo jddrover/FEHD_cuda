@@ -1,6 +1,7 @@
 #include <iostream>
 #include "dataContainers.h"
 #include "mkARGPU.h"
+#include "kernels.h"
 #include <vector>
 #include <cblas.h>
 #include <lapacke.h>
@@ -13,21 +14,9 @@ void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList 
   int numEpochs = dataArray.epochArray.size();
   int epochPts = dataArray.epochArray[0].timePointArray.size();
   int numComps = dataArray.epochArray[0].timePointArray[0].dataVector.size();
-  //int numPoints = numEpochs*epochPts;
-  
-  //matrix LHS;
-  //matrix RHS;
-
-  // We want maxLag, not numLags
   
   int maxLag = *std::max_element(lagList.begin(),lagList.end());
-  int tpoint;
-  // Sort the lag list in reverse order, so everything matches up without changing a lot.
-  //printf("max lag= %i \n",maxLag);
-  std::sort(lagList.begin(),lagList.end(), std::greater<int>());
-
-
-  // Change this so that it is the transpose of this.
+  std::sort(lagList.begin(),lagList.end());
 
   std::vector<float> RHS((epochPts-maxLag)*numEpochs*numComps,0.0);
   std::vector<float> LHS((epochPts-maxLag)*numEpochs*numComps*lagList.size(),0.0);
@@ -60,41 +49,33 @@ void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList 
 	}
     }
 
+  //for(int iter=0;iter < numComps*numEpochs*epochAdj;iter++)
+  //  std::cout << RHS[iter] << std::endl;
+  //  std::cout << RHS.size() << std::endl;
   int numLags = lagList.size();
-  
-  int mval = numLags*numComps;
-  int nval = numLags*numComps;
-  int kval = (epochPts-maxLag)*numEpochs;
-
-  const float alpha = 1.0f;
-  const float beta = 0.0f;
 
   float *LHS_DEVICE = nullptr;
   float *RHS_DEVICE = nullptr;
   float *LHS_DEVICE_BACKUP = nullptr; // gesvd destroys the input, and we need it later.
-
-  cudaMalloc(&LHS_DEVICE,sizeof(float)*LHS.size());
-  cudaMalloc(&RHS_DEVICE,sizeof(float)*RHS.size());
-  cudaMalloc(&LHS_DEVICE_BACKUP,sizeof(float)*LHS.size());
-  cudaMemcpy(LHS_DEVICE,LHS.data(),sizeof(float)*LHS.size(),cudaMemcpyHostToDevice);
-  cudaMemcpy(RHS_DEVICE,RHS.data(),sizeof(float)*RHS.size(),cudaMemcpyHostToDevice);
-
-  cublasScopy(LHS.size(),LHS_DEVICE,1,LHS_DEVICE_BACKUP,1);
-  // Create svd with this.
 
   cublasHandle_t cublasH = 0;
   cublasCreate(&cublasH);
 
   cusolverDnHandle_t cusolverH = NULL;
   cusolverDnCreate(&cusolverH);
-    
-  int Lwork=0;
-  // This is already written to use a symmetric matrix, so the output from above
-  // Can be brought down directly.
+  
+  cudaMalloc(&LHS_DEVICE,sizeof(float)*LHS.size());
+  cudaMalloc(&RHS_DEVICE,sizeof(float)*RHS.size());
+  cudaMalloc(&LHS_DEVICE_BACKUP,sizeof(float)*LHS.size());
+  cudaMemcpy(LHS_DEVICE,LHS.data(),sizeof(float)*LHS.size(),cudaMemcpyHostToDevice);
+  cudaMemcpy(RHS_DEVICE,RHS.data(),sizeof(float)*RHS.size(),cudaMemcpyHostToDevice);
+  // Fill in the backup (I am guessing that this is faster than another cudaMemcpy. 
+  cublasScopy(cublasH,LHS.size(),LHS_DEVICE,1,LHS_DEVICE_BACKUP,1);
 
-  cusolverDnSgesvd_bufferSize(cusolverH,numEpochs*epochAdj,numLags*numComps,&Lwork);
-   
-  float *Workspace;
+  // Determine the size of the work array needed, and create it.
+  int Lwork=0;
+  cusolverDnSgesvd_bufferSize(cusolverH,numEpochs*epochAdj,numLags*numComps,&Lwork);   
+  float *Workspace = nullptr;
   cudaMalloc(&Workspace,sizeof(float)*Lwork);
 
   int m = numEpochs*epochAdj;
@@ -111,54 +92,84 @@ void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList 
   cudaMalloc(&U,sizeof(float)*m*n);
   cudaMalloc(&S,sizeof(float)*n);
   cudaMalloc(&VT,sizeof(float)*n*n);
-
-  
   
   cusolverDnSgesvd(cusolverH,'S','S',m,n,
-		   LHS_DEVICE,m,Sdiag,U,m,VT,n,
+		   LHS_DEVICE,m,S,U,m,VT,n,
 		   Workspace,Lwork,d_rwork,devInfo);
-		   
+
+  std::vector<float> Shost(n);
+  cudaMemcpy(Shost.data(),S,sizeof(float)*n,cudaMemcpyDeviceToHost);
+  //for(int indx=0;indx<n;indx++)
+  //  std::cout << Shost[indx] << std::endl;
+  std::cout << "Condition Number = " << Shost[0]/Shost[n-1] << std::endl;
+
+  
   float *UTb = nullptr;
   cudaMalloc(&UTb,sizeof(float)*n*numComps);
 
-  cublasSgemm(cublasH,CUBLAS_OP_T,CUBLAS_OP_N,n,m,numComps,
-	      &alphaY,U,m,RHS_device,m,
+
+  
+  const float alphaY = 1.0;
+  const float betaY = 0.0;
+  
+  cublasSgemm(cublasH,CUBLAS_OP_T,CUBLAS_OP_N,n,numComps,m,
+	      &alphaY,U,m,RHS_DEVICE,m,
 	      &betaY,UTb,n);
 
+  std::vector<float> UTbhost1(n*numComps);
+  cudaMemcpy(UTbhost1.data(),UTb,sizeof(float)*n*numComps,cudaMemcpyDeviceToHost);
+  //for(int indx=0;indx<n*numComps;indx++)
+  //  std::cout << "UTbhost = " << UTbhost[indx] << std::endl;
+  
   int blksize = 1024;
   int grdsize = (int)(m*n+blksize-1)/blksize;
   const dim3 blockSize(blksize);
   const dim3 gridSize(grdsize);
 
   scaleByS<<<gridSize,blockSize>>>(S,UTb,n,numComps);
+  std::vector<float> UTbhost(n*numComps);
+  cudaMemcpy(UTbhost.data(),UTb,sizeof(float)*n*numComps,cudaMemcpyDeviceToHost);
+  //  for(int indx=0;indx<n*numComps;indx++)
+  //std::cout << UTbhost1[indx] << " " << UTbhost[indx] << std::endl;
 
   float *Adev = nullptr;
   cudaMalloc(&Adev,sizeof(float)*n*numComps); 
-  cublasSgemm(cublasH,CUBLAS_OP_T,CUBLAS_OP_N,n,n,numComps,
+  cublasSgemm(cublasH,CUBLAS_OP_T,CUBLAS_OP_N,n,numComps,n,
 	      &alphaY,VT,n,UTb,n,
 	      &betaY,Adev,n);
 
   std::vector<float> A_result(numLags*numComps*numComps,0);
   cudaMemcpy(A_result.data(),Adev,sizeof(float)*n*numComps,cudaMemcpyDeviceToHost);
-
+  //for(int indx=0;indx<n*numComps;indx++)
+  //  std::cout << A_result[indx] << std::endl;
+  
+  
   const float alphaRes = -1.0f;
   const float betaRes = 1.0f;
   
-  cublasSgemm(cublasH,CUBLAS_OP_N,CUBLAS_OP_N,m,n,numComps,
+  cublasSgemm(cublasH,CUBLAS_OP_N,CUBLAS_OP_N,m,numComps,n,
 	      &alphaRes,LHS_DEVICE_BACKUP,m, Adev,n,
 	      &betaRes, RHS_DEVICE,m);
   // RHS_DEVICE now contains the residuals.
   
   std::vector<float> residualsTmp(m*numComps,0);
-
+  std::vector<float> Rtrans(m*numComps,0);
   cudaMemcpy(residualsTmp.data(),RHS_DEVICE,sizeof(float)*numComps*m,cudaMemcpyDeviceToHost);
 
-  // This data list stuff is a pain in the ass. 
-  convertRawArrayToDataList(residualsTmp.data(),R,numComps,epochPts-maxLag, numEpochs); 
+  for(int row=0;row<numComps;row++)
+    for(int col=0;col<m;col++)
+      Rtrans[col*numComps+row] = residualsTmp[row*m+col];
+       
+  // This data list stuff is a pain in the ass. A class is nice, but some changes are necessary.
 
+  //for(int iter=0;iter<numComps*numEpochs*epochAdj;iter++)
+  //  std::cout << Rtrans[iter] << std::endl;
+    
+  convertRawArrayToDataList(Rtrans.data(),R,numComps,epochAdj,numEpochs); 
+  
   matrix lagTmp;
 
-  for(int lag=numLags-1;lag>=0;lag--)
+  for(int lag=0;lag<numLags;lag++)
     {
       for(int col=0;col<numComps;col++)
 	for(int row=0;row<numComps;row++)
@@ -171,11 +182,16 @@ void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList 
       lagTmp.elements.clear();
     }
 
-
-  cudaFree(LHSvec_DEVICE);
-  cudaFree(RHSvec_DEVICE);
-  cudaFree(LHScov_DEVICE);
-  cudaFree(RHScov_DEVICE);
+  
+  
+  cudaFree(LHS_DEVICE);
+  cudaFree(RHS_DEVICE);
+  cudaFree(LHS_DEVICE_BACKUP);
+  cudaFree(U);
+  cudaFree(S);
+  cudaFree(VT);
+  cudaFree(UTb);
+  cudaFree(Adev);
   cudaFree(Workspace);
   cudaFree(devInfo);
   cublasDestroy(cublasH);
