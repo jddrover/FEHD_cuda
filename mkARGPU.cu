@@ -101,8 +101,17 @@ void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList 
   cudaMemcpy(Shost.data(),S,sizeof(float)*n,cudaMemcpyDeviceToHost);
   //for(int indx=0;indx<n;indx++)
   //  std::cout << Shost[indx] << std::endl;
+  
   std::cout << "Condition Number = " << Shost[0]/Shost[n-1] << std::endl;
 
+  for(int indx=0;indx<n;indx++)
+    {
+      if(Shost[0]/Shost[indx]>100.0)
+	{
+	  std::cout << "index " << indx << std::endl;
+	  break;
+	}
+    }
   
   float *UTb = nullptr;
   cudaMalloc(&UTb,sizeof(float)*n*numComps);
@@ -117,7 +126,7 @@ void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList 
 	      &betaY,UTb,n);
 
   std::vector<float> UTbhost1(n*numComps);
-  cudaMemcpy(UTbhost1.data(),UTb,sizeof(float)*n*numComps,cudaMemcpyDeviceToHost);
+  //cudaMemcpy(UTbhost1.data(),UTb,sizeof(float)*n*numComps,cudaMemcpyDeviceToHost);
   //for(int indx=0;indx<n*numComps;indx++)
   //  std::cout << "UTbhost = " << UTbhost[indx] << std::endl;
   
@@ -128,7 +137,7 @@ void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList 
 
   scaleByS<<<gridSize,blockSize>>>(S,UTb,n,numComps);
   std::vector<float> UTbhost(n*numComps);
-  cudaMemcpy(UTbhost.data(),UTb,sizeof(float)*n*numComps,cudaMemcpyDeviceToHost);
+  //cudaMemcpy(UTbhost.data(),UTb,sizeof(float)*n*numComps,cudaMemcpyDeviceToHost);
   //  for(int indx=0;indx<n*numComps;indx++)
   //std::cout << UTbhost1[indx] << " " << UTbhost[indx] << std::endl;
 
