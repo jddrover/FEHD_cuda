@@ -258,7 +258,7 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
 
   std::sort(lagList.begin(),lagList.end());
 
-  mkARGPU(dataArray, lagList, A, residuals);
+  mkARGPU(dataArray, lagList, A, residuals,params);
 
 
   

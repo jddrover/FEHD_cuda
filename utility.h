@@ -21,7 +21,7 @@ struct paramContainer
   int numEpochsFLAG;
   int numPoints;
   int numPointsFLAG;
-  int numPCs;
+  int numPCs;  
   int numPCsFLAG;
   int numLags;
   int numLagsFLAG;
@@ -42,6 +42,7 @@ struct paramContainer
   std::vector<int> lagList;
   int STUCKCOUNT;
   int STUCKCOUNTFLAG;
+  float Ptol;
 } ;
 
 void setUpParameters(int argc,char** argv,paramContainer &params);

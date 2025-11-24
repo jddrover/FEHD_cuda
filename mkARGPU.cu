@@ -9,19 +9,27 @@
 #include <cusolverDn.h>
 #include <cuda_runtime.h>
 #include "timeSeriesOPs.h"
-void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList &R)
+void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList &R,paramContainer params)
 {
+  // I have the means to pass paramters, I find these objects I made intrusive.
+
   int numEpochs = dataArray.epochArray.size();
   int epochPts = dataArray.epochArray[0].timePointArray.size();
   int numComps = dataArray.epochArray[0].timePointArray[0].dataVector.size();
-  
+
+  // Determine the maximum lag and sort the lags into increasing order. 
   int maxLag = *std::max_element(lagList.begin(),lagList.end());
   std::sort(lagList.begin(),lagList.end());
 
+
+  // Construct the large arrays that are used for the least squares calculation.
+  // LHS*A'=RHS
+  int epochAdj = epochPts-maxLag; // The lagged epochs are maxLag shorter.
   std::vector<float> RHS((epochPts-maxLag)*numEpochs*numComps,0.0);
   std::vector<float> LHS((epochPts-maxLag)*numEpochs*numComps*lagList.size(),0.0);
-  
-  int epochAdj = epochPts-maxLag;
+
+  // Fill the arrays in. There is probably a better way to do this.
+  // Write a kernel! 
   int tpUse;
   for(int epoch=0;epoch<numEpochs;epoch++)
     {
@@ -77,14 +85,14 @@ void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList 
   cusolverDnSgesvd_bufferSize(cusolverH,numEpochs*epochAdj,numLags*numComps,&Lwork);   
   float *Workspace = nullptr;
   cudaMalloc(&Workspace,sizeof(float)*Lwork);
-
+  // Problem dimensions, to save typing.
   int m = numEpochs*epochAdj;
   int n = numLags*numComps;
 
   float *d_rwork = nullptr; // This is an option.
   int *devInfo = nullptr;
   cudaMalloc(&devInfo,sizeof(int));
-
+  //SVD output - returns V transposed.
   float *U = nullptr;
   float *S = nullptr;
   float *VT = nullptr;
@@ -101,22 +109,36 @@ void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList 
   cudaMemcpy(Shost.data(),S,sizeof(float)*n,cudaMemcpyDeviceToHost);
   //for(int indx=0;indx<n;indx++)
   //  std::cout << Shost[indx] << std::endl;
-  
-  std::cout << "Condition Number = " << Shost[0]/Shost[n-1] << std::endl;
 
-  for(int indx=0;indx<n;indx++)
+  if(params.verbose)
+    std::cout << "Smallest Singular Value: " << Shost[n-1] << std::endl;
+
+  float tol;
+
+  float Ptol = params.Ptol;
+  float P = 0.0;
+  float singValSum = 0.0;
+  if(Ptol < 1.0)
     {
-      if(Shost[0]/Shost[indx]>100.0)
+      for(int indx=0;indx<n;indx++)
+	singValSum += Shost[indx];
+      for(int indx=0;indx<n;indx++)
 	{
-	  std::cout << "index " << indx << std::endl;
-	  break;
+	  P += Shost[indx]/singValSum;
+	  if(P>Ptol)
+	    {
+	      tol = Shost[indx];
+	      break;
+	    }
 	}
     }
+  else
+    tol = 0.0;
+  if(params.verbose)
+    std::cout << "Tolerance is : " << tol << std::endl;
   
   float *UTb = nullptr;
   cudaMalloc(&UTb,sizeof(float)*n*numComps);
-
-
   
   const float alphaY = 1.0;
   const float betaY = 0.0;
@@ -135,7 +157,8 @@ void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList 
   const dim3 blockSize(blksize);
   const dim3 gridSize(grdsize);
 
-  scaleByS<<<gridSize,blockSize>>>(S,UTb,n,numComps);
+  // How should this tol be chosen?
+  scaleByS<<<gridSize,blockSize>>>(S,UTb,n,numComps,tol);
   std::vector<float> UTbhost(n*numComps);
   //cudaMemcpy(UTbhost.data(),UTb,sizeof(float)*n*numComps,cudaMemcpyDeviceToHost);
   //  for(int indx=0;indx<n*numComps;indx++)

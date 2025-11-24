@@ -1,7 +1,7 @@
 #ifndef KERNEL_H
 #define KERNEL_H
 
-__global__ void scaleByS(float *,float *,int,int);
+__global__ void scaleByS(float *,float *,int,int,float);
 
 __global__ void generateRotationMatrices(float *,float *,int, int);
 // Transpose individual block matrices

@@ -14,9 +14,13 @@ void setUpParameters(int argc,char** argv,paramContainer &params)
   // printf("number of args: %i \n",argc);
 
   params.verbose = false;
-  
+  params.Ptol = 0.98;
   for(int i=1;i<argc;i+=2)
     {
+      if(std::string(argv[i]) == "-Ptol")
+	{
+	  params.Ptol = std::stof(std::string(argv[i+1]));
+	}
       if(std::string(argv[i]) == "-verbose")
 	{
 	  params.verbose = (bool)std::stoi(std::string(argv[i+1]));
@@ -346,6 +350,7 @@ void writeOutput(float *transMat,paramContainer params)
   metaStream << "high frequency = " << params.freqHi << std::endl;
   metaStream << "number of frequencies = " << params.numFreqs << std::endl;
   metaStream << "Exit count = " << params.STUCKCOUNT << std::endl;
+  metaStream << "AR variance tolerance = " << params.Ptol << std::endl;
   metaStream.close();
 
   // Now write the data.
@@ -414,6 +419,7 @@ void printParams(paramContainer params)
     printf("high end of frequnecy = %f \n",params.freqHi);
   if(params.numFreqsFLAG)
     printf("number of frequencies = %i \n",params.numFreqs);
+  
 }
 
 void printMatrixfloat(float *M, int lda, int numRows, int numCols)

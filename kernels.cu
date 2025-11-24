@@ -5,14 +5,19 @@
 // Do the scaling for the S, including removing singular values that are too small.
 
 __global__
-void scaleByS(float *S,float *X,int m,int n)
+void scaleByS(float *S,float *X,int m,int n,float tol)
 {
   const int idx = threadIdx.x+blockDim.x*blockIdx.x;
 
   if(idx >= m*n) {return;}
   
   int rowIndx = idx-int(idx/m)*m;
-  
+
+  if(S[rowIndx]<tol)
+    {
+      X[idx] = 0.0;
+      return;
+    }
   X[idx] = X[idx]/S[rowIndx];    
 }
 
