@@ -189,27 +189,7 @@ void PCA(dataList DS,dataList &PC, matrix &transMat)
   convertRawArrayToDataList(uMatT.data(),PC,numComps,epochPts,numEpochs);
   
   transMat.elements.insert(transMat.elements.begin(),vMatT.begin(),vMatT.end());
-  /*
-  for(int row=0;row<numComps;row++)
-    {
-      for(int col=0;col<numComps;col++)
-	{
-	  std::cout << transMat.elements[col*numComps+row] << " ";
-	}
-      std::cout << std::endl;
-    }
-  */
-  // Need to print these out and check that they are correct.
 
-  //for(int row=0;row<numComps;row++)
-  //  {
-  //    for(int col=0;col<numComps;col++)
-  //	{
-  //	  std::cout << vMatT[col*numComps+row] << " ";
-  //	}
-  //  std::cout << std::endl;
-  //  }
-  //exit(0);
 }
 
 
