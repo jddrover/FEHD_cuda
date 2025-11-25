@@ -131,81 +131,85 @@ void PCA(dataList DS,dataList &PC, matrix &transMat)
   int numComps = DS.epochArray[0].timePointArray[0].dataVector.size();
   int numPoints = numEpochs*epochPts;
 
-  float *dataArray = new float[numEpochs*epochPts*numComps];
-
-  const float alpha=1.0f;
-  const float beta=0.0f;
-
-  float *covMat = new float[numComps*numComps];
   
-  // Convert the Data to a raw array for the blas and lapack routines.
   
-  convertDataListToRawArray(DS,dataArray);
-
-  // Compute the covariance matrix // This is a rather large calculation.
-  cblas_sgemm(CblasColMajor,CblasNoTrans,CblasTrans,numComps,numComps,
-	      numPoints,alpha,dataArray,numComps,dataArray,numComps,beta,
-	      covMat,numComps);
-
-  // Compute the SVD
+  std::vector<float> dataArray(numPoints*numComps,0.0);
+    
+  convertDataListToRawArray(DS,dataArray.data());
+  
+  std::vector<float> DAT(dataArray);
+  // I need to flip this. Graceful.
+  for(int row=0;row<numPoints;row++)
+    for(int col=0;col<numComps;col++)
+      dataArray[col*numPoints+row] = DAT[row*numComps+col];
+  
   float superb[numComps-1];
 
-  float *sMat = new float[numComps];
-  float *uMat = new float[numComps*numComps];
-  float *vMatT = new float[numComps*numComps];
+  std::vector<float> sMat(numComps,0.0);
+  std::vector<float> uMat(numComps*numPoints,0.0);
+  std::vector<float> vMatT(numComps*numComps,0.0);
+
+  int info;
+
+  info = LAPACKE_sgesvd(LAPACK_COL_MAJOR,'S','A',numPoints,numComps,
+			dataArray.data(),numPoints,
+			sMat.data(),
+			uMat.data(),numPoints,
+			vMatT.data(),numComps,superb);
+
+  if(info != 0)
+    {
+      std::cout << "SVD in PCA did not exit successfully" << std::endl;
+      exit(1);
+    }
   
-  LAPACKE_sgesvd(LAPACK_COL_MAJOR,'A','A',numComps,numComps,covMat,numComps,sMat,uMat,numComps,
-		 vMatT,numComps,superb);
+  //std::cout << info << std::endl;
+  
 
-  // Now apply U' to the data
 
-  // Set aside some space for the principal components.
-  float *PCrawArray = new float[numComps*numPoints];
-
-  // Scale the transformation matrix so that the transformed components are orthonormal.
+  // Do a check here - look for very small svs
+  float tol = 1e-2;
   float scaleVal;
-  
-  for(int comp=0;comp<numComps;comp++)
+  for(int row=0;row<numComps;row++)
     {
-      scaleVal = 1.0f/(sqrt(sMat[comp]));
-      // Changed 7/17/23
-      //scaleVal = sqrt(float(numPoints))/(sqrt(sMat[comp]));
-      cblas_sscal(numComps,scaleVal,uMat+(comp*numComps), 1);
-    }
-
-
-  cblas_sgemm(CblasColMajor,CblasTrans,CblasNoTrans,numComps,numPoints,numComps,
-	      alpha, uMat, numComps, dataArray, numComps,beta,PCrawArray,numComps);
-
-  //Convert the PC raw array to the PC data structure.
-
-  //cblas_sscal(numPoints*numComps,sqrt(numPoints), PCrawArray, 1);
-  
-  convertRawArrayToDataList(PCrawArray,PC,numComps,epochPts,numEpochs);
-
-  transMat.elements.insert(transMat.elements.begin(),uMat,uMat+(numComps*numComps));
-  // clean up
-
-  // I want to transpose this before output, I think it's better to have it in transformation form.
-  float tempval;
-  for(int col=0;col<numComps;col++)
-    {
-      for(int row=0;row<col;row++)
+      if(sMat[row]<tol)
 	{
-	  tempval = transMat.elements[col*numComps+row];
-	  transMat.elements[col*numComps+row] = transMat.elements[row*numComps+col];
-	  transMat.elements[row*numComps+col] = tempval;
+	  std::cout << "In PCA, there is a very small singular value." << sMat[row] << std::endl;
+	  std::cout << "If things go south, look here" << std::endl;
 	}
+      scaleVal = 1.0f/sMat[row];
+      cblas_sscal(numComps,scaleVal,vMatT.data()+row,numComps);
     }
+  
+  std::vector<float> uMatT(uMat);
+  for(int row=0;row<numComps;row++)
+    for(int col=0;col<numPoints;col++)
+      uMatT[col*numComps+row] = uMat[row*numPoints+col];
+  
+  convertRawArrayToDataList(uMatT.data(),PC,numComps,epochPts,numEpochs);
+  
+  transMat.elements.insert(transMat.elements.begin(),vMatT.begin(),vMatT.end());
+  /*
+  for(int row=0;row<numComps;row++)
+    {
+      for(int col=0;col<numComps;col++)
+	{
+	  std::cout << transMat.elements[col*numComps+row] << " ";
+	}
+      std::cout << std::endl;
+    }
+  */
+  // Need to print these out and check that they are correct.
 
-
-
-	  
-  delete [] dataArray;
-  delete [] covMat;
-  delete [] sMat;
-  delete [] uMat;
-  delete [] vMatT;
+  //for(int row=0;row<numComps;row++)
+  //  {
+  //    for(int col=0;col<numComps;col++)
+  //	{
+  //	  std::cout << vMatT[col*numComps+row] << " ";
+  //	}
+  //  std::cout << std::endl;
+  //  }
+  //exit(0);
 }
 
 

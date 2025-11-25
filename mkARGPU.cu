@@ -11,7 +11,7 @@
 #include "timeSeriesOPs.h"
 void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList &R,paramContainer params)
 {
-  // I have the means to pass paramters, I find these objects I made intrusive.
+  // I have the means to pass parameters, I find these objects I made intrusive.
 
   int numEpochs = dataArray.epochArray.size();
   int epochPts = dataArray.epochArray[0].timePointArray.size();
@@ -57,9 +57,6 @@ void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList 
 	}
     }
 
-  //for(int iter=0;iter < numComps*numEpochs*epochAdj;iter++)
-  //  std::cout << RHS[iter] << std::endl;
-  //  std::cout << RHS.size() << std::endl;
   int numLags = lagList.size();
 
   float *LHS_DEVICE = nullptr;
@@ -89,10 +86,10 @@ void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList 
   int m = numEpochs*epochAdj;
   int n = numLags*numComps;
 
-  float *d_rwork = nullptr; // This is an option.
+  float *d_rwork = nullptr; // This is an option. I really don't want to deal with it.
   int *devInfo = nullptr;
   cudaMalloc(&devInfo,sizeof(int));
-  //SVD output - returns V transposed.
+  //SVD matrices - returns V transposed.
   float *U = nullptr;
   float *S = nullptr;
   float *VT = nullptr;
@@ -100,11 +97,13 @@ void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList 
   cudaMalloc(&U,sizeof(float)*m*n);
   cudaMalloc(&S,sizeof(float)*n);
   cudaMalloc(&VT,sizeof(float)*n*n);
-  
+  // Compute the SVD
   cusolverDnSgesvd(cusolverH,'S','S',m,n,
 		   LHS_DEVICE,m,S,U,m,VT,n,
 		   Workspace,Lwork,d_rwork,devInfo);
 
+  // Bounce out to the host.
+  // Doing this whole thing on the GPU instead of the CPU might be stupid.
   std::vector<float> Shost(n);
   cudaMemcpy(Shost.data(),S,sizeof(float)*n,cudaMemcpyDeviceToHost);
   //for(int indx=0;indx<n;indx++)
@@ -134,6 +133,7 @@ void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList 
     }
   else
     tol = 0.0;
+  
   if(params.verbose)
     std::cout << "Tolerance is : " << tol << std::endl;
   
@@ -200,7 +200,18 @@ void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList 
   convertRawArrayToDataList(Rtrans.data(),R,numComps,epochAdj,numEpochs); 
   
   matrix lagTmp;
+  // Test print elements of A.
+  //for(int row=0;row<n;row++)
+  //  {
+  //    for(int col=0;col<numComps;col++)
+  // {
+  //	  std::cout << A_result[col*n+row] << " ";
+  //	}
+  //  std::cout << std::endl;
+  //}
 
+  
+  
   for(int lag=0;lag<numLags;lag++)
     {
       for(int col=0;col<numComps;col++)

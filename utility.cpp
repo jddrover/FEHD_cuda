@@ -1,11 +1,13 @@
 #include <iostream>
 #include <string>
 #include <fstream>
-#include <experimental/filesystem>
+//#include <experimental/filesystem>
+#include <filesystem>
 #include <time.h>
 #include "utility.h"
 
-namespace fs = std::experimental::filesystem;
+//namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 void setUpParameters(int argc,char** argv,paramContainer &params)
 {
 
@@ -14,30 +16,26 @@ void setUpParameters(int argc,char** argv,paramContainer &params)
   // printf("number of args: %i \n",argc);
 
   params.verbose = false;
-  params.Ptol = 0.98;
+  params.Ptol = 1.0;
   for(int i=1;i<argc;i+=2)
     {
       if(std::string(argv[i]) == "-Ptol")
-	{
-	  params.Ptol = std::stof(std::string(argv[i+1]));
-	}
+	params.Ptol = std::stof(std::string(argv[i+1]));
+	
       if(std::string(argv[i]) == "-verbose")
-	{
-	  params.verbose = (bool)std::stoi(std::string(argv[i+1]));
-	}
+	params.verbose = (bool)std::stoi(std::string(argv[i+1]));
+	
       if(std::string(argv[i]) == "-filename")
 	{
-	  //printf("Filename option specified \n");
 	  params.filename = std::string(argv[i+1]);
-	  // Try to open this
-	  std::ifstream tester(params.filename.c_str(),std::ifstream::in);
-	  if(!tester.is_open())
+
+	  if(!fs::exists(params.filename))
 	    {
 	      throw std::invalid_argument("Data file not found. Exiting.");
 	      return;
 	    }
-	  tester.close();
-	  params.filenameFLAG = 1; 
+	  else
+	    params.filenameFLAG = 1; 
 	}
       if(std::string(argv[i]) == "-lagList")
 	{
@@ -127,38 +125,16 @@ void setUpParameters(int argc,char** argv,paramContainer &params)
     params.STUCKCOUNT = 5;
   
   if(params.filenameFLAG == 0)
-    {
-      //std::cout << "No filename was provided" << std::endl;
-      throw std::invalid_argument("No filename provided (-filename). Exiting");
-      
-      /*char filename[1024];
-      f = popen("zenity --title='Choose a data file' --file-selection", "r");
-      fgets(filename, 1024, f);
-      params.filename = std::string(filename);
-      params.filenameFLAG = 1;
-      pclose(f);
-
-      // this is needed, has something to do with zenity leaving a space at the end.
-      params.filename = params.filename.substr(0,params.filename.length()-1);*/
-    }
+    throw std::invalid_argument("No filename provided (-filename). Exiting");
+    
   if(params.sampRateFLAG == 0)
-    {
-      throw std::invalid_argument("Sampling rate was not provided (-sampRate). Exiting");
+    throw std::invalid_argument("Sampling rate was not provided (-sampRate). Exiting");
       
-      /*char sampRatestr[10];
-      f = popen("zenity --entry --title='Sampling rate' --text='Enter the sampling rate'","r");
-      fgets(sampRatestr,10,f);
-      params.sampRate = std::stoi(std::string(sampRatestr));
-      params.sampRateFLAG = 1;
-      pclose(f);*/
-    }
-  
   // Determine the number of channels and time points automatically from the file
 
   if(params.numPointsFLAG == 0 || params.numChannelsFLAG == 0)
     {
-      //std::cout << "Determining channels and time points from file size" << std::endl;
-      // I use the system command wc to do this.
+      // This should be rewritten so that it does not depend on wc.
       char numPointsstr[100];
 
       std::string commandBase = "wc -l -w " + params.filename;
@@ -180,16 +156,7 @@ void setUpParameters(int argc,char** argv,paramContainer &params)
     }
 
   if(params.epochPtsFLAG == 0)
-    {
-      throw std::invalid_argument("Points per epoch (trial) not provided (-epochPts). Exiting");
-	
-      /*char epochPtsstr[10];
-      f = popen("zenity --entry --title='Points per epoch' --text='Enter the points per epoch'","r");
-      fgets(epochPtsstr,10,f);
-      params.epochPts = std::stoi(std::string(epochPtsstr));
-      params.epochPtsFLAG = 1;
-      pclose(f);*/
-    }
+    throw std::invalid_argument("Points per epoch (trial) not provided (-epochPts). Exiting");
 
   // Determine the number of epochs from obtained information.
 
@@ -206,85 +173,26 @@ void setUpParameters(int argc,char** argv,paramContainer &params)
     }
   
   if(params.numPCsFLAG == 0)
-    {
-      throw std::invalid_argument("Number of principal components not specified (-numPCs). Exiting.");
-      
-      /*char numPCsstr[10];
-      f = popen("zenity --entry --title='Number of Principal Components' --text='Enter the number of principal components'","r");
-      fgets(numPCsstr,10,f);
-      params.numPCs = std::stoi(std::string(numPCsstr));
-      params.numPCsFLAG = 1;
-      pclose(f);*/
-    }
+    throw std::invalid_argument("Number of principal components not specified (-numPCs). Exiting.");
 
   if(params.numLagsFLAG == 0)
-    {
-      throw std::invalid_argument("lag list has not been described (-numLags or -lagList). Exiting.");
-      /*char numLagsstr[10];
-      f=popen("zenity --entry --title='Number of lags' --text='Enter the number of lags to the AR model'","r");
-      fgets(numLagsstr,10,f);
-      params.numLags = std::stoi(std::string(numLagsstr));
-      params.numLagsFLAG = 1;
-      pclose(f);*/
-    }
+    throw std::invalid_argument("lag list has not been described (-numLags or -lagList). Exiting.");
 
   if(params.freqLoFLAG == 0)
-    {
-      throw std::invalid_argument("Lower frequency bound not provided (-freqLo). Exiting.");
-      /*char freqLostr[10];
-      f = popen("zenity --entry --title='lower frequency bound' --text='Enter the lower frequency bound'","r");
-      fgets(freqLostr,10,f);
-      params.freqLo = std::stof(std::string(freqLostr));
-      params.freqLoFLAG = 1;
-      pclose(f);*/
-    }
-
+    throw std::invalid_argument("Lower frequency bound not provided (-freqLo). Exiting.");
+    
   if(params.freqHiFLAG == 0)
-    {
-      throw std::invalid_argument("Upper frequency bound not provided (-freqHi). Exiting.");
-      /*char freqHistr[10];
-      f = popen("zenity --entry --title='upper frequency bound' --text='Enter the upper frequency bound'","r");
-      fgets(freqHistr,10,f);
-      params.freqHi = std::stof(std::string(freqHistr));
-      params.freqHiFLAG = 1;
-      pclose(f);*/
-    }
-
+    throw std::invalid_argument("Upper frequency bound not provided (-freqHi). Exiting.");
+    
   if(params.numFreqsFLAG == 0)
-    {
-      throw std::invalid_argument("Number of frequencies to evaluate not provided (-numFreqs). Exiting.");
-      /*char numFreqsstr[10];
-      f = popen("zenity --entry --title='Number of frequencies' --text='Enter the number of frequencies to evaluate'","r");
-      fgets(numFreqsstr,10,f);
-      params.numFreqs = std::stoi(std::string(numFreqsstr));
-      params.numFreqsFLAG = 1;
-      pclose(f);*/
-
-    }
-
+    throw std::invalid_argument("Number of frequencies to evaluate not provided (-numFreqs). Exiting.");
+    
   if(params.numParticlesFLAG == 0)
-    {
-      throw std::invalid_argument("Number of particles not provided (-numParticles). Exiting.");
-      /*char numParticlesstr[10];
-      f = popen("zenity --entry --title='Number of particles' --text='Enter the number of particles'","r");
-      fgets(numParticlesstr,10,f);
-      params.numParticles = std::stoi(std::string(numParticlesstr));
-      params.numParticlesFLAG = 1;
-      pclose(f);*/
-    }
-
+    throw std::invalid_argument("Number of particles not provided (-numParticles). Exiting.");
+    
   if(params.outfolderFLAG == 0)
-    {
-      throw std::invalid_argument("Folder for output not specified (-outfolder). Exiting.");
-      char outfolderstr[1024];
-      f = popen("zenity --entry --title='Folder for output' --text='Enter a folder name for output'","r");
-      fgets(outfolderstr,1024,f);
-      params.outfolder = std::string(outfolderstr);
-      params.outfolderFLAG = 1;
-      pclose(f);
-
-      params.outfolder = params.outfolder.substr(0,params.outfolder.length()-1);
-    }
+    throw std::invalid_argument("Folder for output not specified (-outfolder). Exiting.");
+      
       
 }
 
