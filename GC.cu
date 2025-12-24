@@ -106,7 +106,7 @@ void granger(std::vector<float> angleArray,
   int grdsize7 = (int)(params.numParticles+blksize-1)/blksize;
   const dim3 blockSize_det2GC(blksize);
   const dim3 gridSize_det2GC(grdsize7);
-
+  // Put error checking on all of these. Problems do arise.
 
 
   // I remember this being here because it was difficult otherwise, I do not remember
