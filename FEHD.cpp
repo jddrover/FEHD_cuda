@@ -18,63 +18,50 @@ void runFEHD(dataClass<float> dataArray, std::vector<float> &Lmat, paramContaine
   float beta=0.0f;
 
   
-  std::vector<float> bestAngle;
-  std::vector<float> Rdecor;
-  //  matrix Rdecor; // Another example - it's the pca function.
-  std::vector<float> Q; // The rotation matrix, resized at each step.
-  std::vector<float> T(params.numPCs*params.numPCs,0); // The "work" transformation
-  std::vector<float> oneArrayData; // Holds the data without epoch boundaries.
-  std::vector<float> transformedData; // Holds the new data without epoch boundaries.  
-  std::vector<float> newTrans(params.numPCs*params.numChannels); // Another worker.
+
+  dataClass<float> dataiter = dataArray;
+
   // Start at numPCs, work down to 2, removing (straight up, it is now an n-1 dimensional system)
   // the least causal component at each stage.
   for(int numComps = params.numPCs;numComps>1;numComps--)
     {
-      Rdecor.elements.clear();
-      bestAngle.resize(numComps-1);
+      std::vector<float> Rdecor;
+      std::vector<float> bestAngle(numComps-1);
+
       // Find the angle that results smallest upward causality.
-      runFEHDstep(bestAngle, Rdecor, dataArray, params, numComps);
+      runFEHDstep(bestAngle, Rdecor, dataiter, params, numComps);
       // Local Q, going to assemble from the angles.
-      Q.resize(numComps*numComps);
-      
+      std::vector<float> Q(numComps*numComps);      
       singleQ(Q,bestAngle);
 
+      std::vector<float> T(numComps*numComps);
       std::fill(T.begin(),T.end(), 0.0f);
-
-      for(int i=numComps;i<params.numPCs;i++)
-	T[i*params.numPCs+i] = 1.0f;
 
       cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans,
 		  numComps,numComps,numComps,
 		  alpha,Q.data(),numComps,
-		  Rdecor.elements.data(),numComps,
-		  beta,T.data(),params.numPCs);
+		  Rdecor.data(),numComps,
+		  beta,T.data(),numComps);
 
-      oneArrayData.resize(numComps*params.numEpochs*params.epochPts);
-      convertDataListToRawArray(dataArray, oneArrayData.data());
+      // Transform the data      
+      std::vector<float> dataVec = dataiter.dataArray();
+      std::vector<float> Ldata = linearTrans(dataVec,T);
+      Ldata.removeComponent(numComps-1);
 
-      // Transform the data
-      
-      transformedData.resize(numComps*params.numEpochs*params.epochPts);
-
-      cblas_sgemm(CblasColMajor, CblasNoTrans,CblasNoTrans,
-		  numComps,params.numEpochs*params.epochPts,numComps,
-		  alpha,T.data(),params.numPCs,
-		  oneArrayData.data(), numComps,
-		  beta,transformedData.data(), numComps);
-
-      // Convert it back into dataArray
-
-      convertRawArrayToDataList(transformedData.data(), dataArray, numComps, params.epochPts, params.numEpochs);
-
-      // Remove the last component
-      removeComponent(dataArray, numComps-1);
-
+      dataiter = Ldata;
       // Update the transformation
 
+      std::vector<float> largeT(params.numPCs*params.numPCs,0.0);
+      for(int indx=numComps;indx<params.numPCs;indx++)
+	largeT[indx*params.numPCs+indx] = 1.0;
+      for(int colindx=0;colindx<numComps;colindx++)
+	for(int rowindx=0;rowindx<numComps;rowindx++)
+	  largeT[colindx*params.numPCs+rowindx] = T[colindx*numComps+rowindx];
+
+      std::vector<float> newTrans(params.numPCs*params.numPCs);
       cblas_sgemm(CblasColMajor,CblasNoTrans,CblasNoTrans,
 		  params.numPCs,params.numChannels,params.numPCs,
-		  alpha, T.data(),params.numPCs,
+		  alpha, largeT.data(),params.numPCs,
 		  Lmat.data(),params.numPCs,
 		  beta, newTrans.data(), params.numPCs);
 

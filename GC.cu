@@ -243,7 +243,7 @@ void granger(std::vector<float> angleArray,
   return;
 }
 
-void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataClass<float> dataArray ,paramContainer params,int numComps)
+void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass<float> dataArray ,paramContainer params,int numComps)
 {
 
   // Determine the available memory on the GPU
@@ -257,32 +257,9 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataClass<float> data
   int maxLag = *std::max_element(model.lagList.begin(),model.lagList.end());
   int epochAdj = dataArray.getEpochPoints() - maxLag;
   dataClass<float> residuals(epochAdj,dataArray.getNumComps(),model.R,dataArray.getSampRate());
-  std::vector<float> Rtrans = PCA(residuals);
+  L = PCA(residuals);
 
-  rotate_model(model,Rtrans);
-      
-  
-  
-  // Orthonormalize the residuals using the SVD.
-
-
-  // Obtain the transformation that orthonormalizes the residual time series.
-  orthonormalizeR(residuals, ortho_residuals, L); // This function is in mkARGPU.h
-  // Apply the transformations - LAL^-1
-  rotate_model(A, L); // Also in mkARGPU.h
-
-  
-  
-  // Convert the AR model format to a single vector so it can be copied etc.
-  std::vector<float> AR(params.numLags*numComps*numComps,0);
-  for(int lag=0;lag<params.numLags;lag++)
-    for(int row=0;row<numComps;row++)
-      for(int col=0;col<numComps;col++)
-	{
-	  AR[lag*numComps*numComps+col*numComps+row] = A.lagMatrices[lag].elements[col*numComps+row];
-	}
-
-  
+  MVAR<float> rModel = rotate_model(model,L);
 
   
   // The step-sizes to check along the (-)gradient.
@@ -329,7 +306,7 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataClass<float> data
 
   // Allocate all of the arrays need for the GC function. 
   workForGranger workArray;
-  allocateParams(workArray,numComps,particleBlockSize,params,lagList,AR);
+  allocateParams(workArray,numComps,particleBlockSize,params,lagList,rModel.A);
    
   // Angle arrays.
   std::vector<std::vector<float>> angleArray;

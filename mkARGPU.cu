@@ -241,7 +241,7 @@ MVAR<float> rotate_model(MVAR<float> model, std::vector<float> L)
       std::vector<float> tmp(numComps*numComps,0.0);
       cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans,
 		  numComps,numComps,numComps,alpha,LBAK.data(),numComps,
-		  lagMat.data(),numComps,// Left here.
+		  lagMat.data(),numComps,
 		  beta, tmp.data(),numComps);
       
       cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans,
@@ -258,6 +258,6 @@ MVAR<float> rotate_model(MVAR<float> model, std::vector<float> L)
   
   
   MVAR<float> ARout(Aout,Rout,numComps,model.lagList);
-  return
+  return ARout;
 }
 	
