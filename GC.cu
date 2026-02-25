@@ -15,6 +15,7 @@
 #include "cuda.h"
 #include "cuda_runtime_api.h"
 #include "workArray.h"
+#include "dataClass.h"
 
 void granger(std::vector<float> angleArray,
 	     std::vector<float> &GCvals, paramContainer params,
@@ -242,7 +243,7 @@ void granger(std::vector<float> angleArray,
   return;
 }
 
-void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,paramContainer params,int numComps)
+void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataClass<float> dataArray ,paramContainer params,int numComps)
 {
 
   // Determine the available memory on the GPU
@@ -252,19 +253,18 @@ void runFEHDstep(std::vector<float> &bestAngle, matrix &L, dataList dataArray ,p
  
   srand((unsigned)time(0));
 
-  ARmodel A;
-  dataList residuals;
-  std::vector<int> lagList(params.lagList);
+  MVAR<float> model = mkARGPU(dataArray,params);
+  int maxLag = *std::max_element(model.lagList.begin(),model.lagList.end());
+  int epochAdj = dataArray.getEpochPoints() - maxLag;
+  dataClass<float> residuals(epochAdj,dataArray.getNumComps(),model.R,dataArray.getSampRate());
+  std::vector<float> Rtrans = PCA(residuals);
 
-  std::sort(lagList.begin(),lagList.end());
-
-  mkARGPU(dataArray, lagList, A, residuals,params);
-
-
+  rotate_model(model,Rtrans);
+      
   
   
   // Orthonormalize the residuals using the SVD.
-  dataList ortho_residuals;
+
 
   // Obtain the transformation that orthonormalizes the residual time series.
   orthonormalizeR(residuals, ortho_residuals, L); // This function is in mkARGPU.h

@@ -3,7 +3,7 @@
 #include "dataContainers.h"
 #include <vector>
 #include <string>
-void loadFile(std::string,int,int,int,dataList &);
+void loadFile(std::string,std::vector<float> &);
 void removeEpoch(dataList &DS,int epochToRemove);
 void removeMultipleEpochs(dataList &DS,std::vector<int> &epochsToRemove);
 void convertDataListToRawArray(dataList DS,float *rawArray);

@@ -9,56 +9,47 @@
 #include <cusolverDn.h>
 #include <cuda_runtime.h>
 #include "timeSeriesOPs.h"
-void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList &R,paramContainer params)
+#include "dataClass.h"
+
+MVAR<float> mkARGPU(dataClass<float> dataArray,paramContainer params)
 {
   // I have the means to pass parameters, I find these objects I made intrusive.
 
-  int numEpochs = dataArray.epochArray.size();
-  int epochPts = dataArray.epochArray[0].timePointArray.size();
-  int numComps = dataArray.epochArray[0].timePointArray[0].dataVector.size();
-
-  // Determine the maximum lag and sort the lags into increasing order. 
+  int numEpochs = dataArray.getNumEpochs();
+  int epochPts = dataArray.getEpochPoints();
+  int numComps = dataArray.getNumComps();
+  
+  // Determine the maximum lag and sort the lags into increasing order.
+  std::vector<int> lagList(params.lagList);
   int maxLag = *std::max_element(lagList.begin(),lagList.end());
   std::sort(lagList.begin(),lagList.end());
-
-
-  // Construct the large arrays that are used for the least squares calculation.
-  // LHS*A'=RHS
-  int epochAdj = epochPts-maxLag; // The lagged epochs are maxLag shorter.
-  std::vector<float> RHS((epochPts-maxLag)*numEpochs*numComps,0.0);
-  std::vector<float> LHS((epochPts-maxLag)*numEpochs*numComps*lagList.size(),0.0);
-
-  // Fill the arrays in. There is probably a better way to do this.
-  // Write a kernel! 
-  int tpUse;
-  for(int epoch=0;epoch<numEpochs;epoch++)
-    {
-      for(int tp=maxLag;tp<epochPts;tp++)
-	{
-	  tpUse = tp - maxLag;
-	  for(int comp=0;comp<numComps;comp++)
-	    {
-	      RHS[epoch*epochAdj+tpUse+comp*numEpochs*epochAdj]=
-		dataArray.epochArray[epoch].timePointArray[tp].dataVector[comp];
-	    }
-	}
-      for(int lagIndx=0;lagIndx<lagList.size();lagIndx++)
-	{
-	  for(int tp=0;tp<epochAdj;tp++)
-	    {
-	      tpUse = tp+maxLag-lagList[lagIndx];
-	      for(int comp=0;comp<numComps;comp++)
-		{
-		  LHS[epoch*epochAdj+tp+lagIndx*numComps*numEpochs*epochAdj+
-		      comp*numEpochs*epochAdj]=
-		    dataArray.epochArray[epoch].timePointArray[tpUse].dataVector[comp];
-		}
-	    }
-	}
-    }
-
   int numLags = lagList.size();
 
+  int epochAdj = epochPts-maxLag; // The lagged epochs are maxLag shorter.
+  std::vector<float> RHS(epochAdj*numEpochs*numComps,0.0);
+  std::vector<float> LHS(epochAdj*numEpochs*numComps*numLags,0.0);
+
+  for(int epoch=0;epoch<numComps;epoch++)
+    {
+      std::vector<float> epochData = dataArray.isoEpoch(epoch).dataArray();
+      std::copy(epochData.begin()+numComps*maxLag,epochData.end(),RHS.begin()+epoch*epochAdj*numComps);
+      for(int tp=maxLag;tp<epochPts;tp++)
+	for(int lagindx=0;lagindx<lagList.size();lagindx++)
+	  std::copy(epochData.begin()+(tp-lagList[lagindx])*numComps,
+		    epochData.begin()+(tp-lagList[lagindx]+1)*numComps,
+		    LHS.begin()+(epoch*epochAdj+tp-maxLag)*numComps*numLags+lagindx*numComps);
+    }
+  // Transpose these
+  std::vector<float> LHST(LHS.size());
+  for(int rowindx=0;rowindx<epochAdj*numEpochs;rowindx++)
+    for(int colindx=0;colindx<numComps*numLags;colindx++)
+      LHST[rowindx+colindx*epochAdj*numEpochs] = LHS[colindx+rowindx*numComps*numLags];
+      
+  std::vector<float> RHST(RHS.size());
+  for(int rowindx=0;rowindx<epochAdj*numEpochs;rowindx++)
+    for(int colindx=0;colindx<numComps;colindx++)
+      RHST[rowindx+colindx*epochAdj*numEpochs] = RHS[colindx+rowindx*numComps];
+  
   float *LHS_DEVICE = nullptr;
   float *RHS_DEVICE = nullptr;
   float *LHS_DEVICE_BACKUP = nullptr; // gesvd destroys the input, and we need it later.
@@ -69,13 +60,13 @@ void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList 
   cusolverDnHandle_t cusolverH = NULL;
   cusolverDnCreate(&cusolverH);
   
-  cudaMalloc(&LHS_DEVICE,sizeof(float)*LHS.size());
-  cudaMalloc(&RHS_DEVICE,sizeof(float)*RHS.size());
-  cudaMalloc(&LHS_DEVICE_BACKUP,sizeof(float)*LHS.size());
-  cudaMemcpy(LHS_DEVICE,LHS.data(),sizeof(float)*LHS.size(),cudaMemcpyHostToDevice);
-  cudaMemcpy(RHS_DEVICE,RHS.data(),sizeof(float)*RHS.size(),cudaMemcpyHostToDevice);
+  cudaMalloc(&LHS_DEVICE,sizeof(float)*LHST.size());
+  cudaMalloc(&RHS_DEVICE,sizeof(float)*RHST.size());
+  cudaMalloc(&LHS_DEVICE_BACKUP,sizeof(float)*LHST.size());
+  cudaMemcpy(LHS_DEVICE,LHST.data(),sizeof(float)*LHST.size(),cudaMemcpyHostToDevice);
+  cudaMemcpy(RHS_DEVICE,RHST.data(),sizeof(float)*RHST.size(),cudaMemcpyHostToDevice);
   // Fill in the backup (I am guessing that this is faster than another cudaMemcpy. 
-  cublasScopy(cublasH,LHS.size(),LHS_DEVICE,1,LHS_DEVICE_BACKUP,1);
+  cublasScopy(cublasH,LHST.size(),LHS_DEVICE,1,LHS_DEVICE_BACKUP,1);
 
   // Determine the size of the work array needed, and create it.
   int Lwork=0;
@@ -106,8 +97,6 @@ void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList 
   // Doing this whole thing on the GPU instead of the CPU might be stupid.
   std::vector<float> Shost(n);
   cudaMemcpy(Shost.data(),S,sizeof(float)*n,cudaMemcpyDeviceToHost);
-  //for(int indx=0;indx<n;indx++)
-  //  std::cout << Shost[indx] << std::endl;
 
   if(params.verbose)
     std::cout << "Smallest Singular Value: " << Shost[n-1] << std::endl;
@@ -146,12 +135,7 @@ void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList 
   cublasSgemm(cublasH,CUBLAS_OP_T,CUBLAS_OP_N,n,numComps,m,
 	      &alphaY,U,m,RHS_DEVICE,m,
 	      &betaY,UTb,n);
-
-  std::vector<float> UTbhost1(n*numComps);
-  //cudaMemcpy(UTbhost1.data(),UTb,sizeof(float)*n*numComps,cudaMemcpyDeviceToHost);
-  //for(int indx=0;indx<n*numComps;indx++)
-  //  std::cout << "UTbhost = " << UTbhost[indx] << std::endl;
-  
+    
   int blksize = 1024;
   int grdsize = (int)(m*n+blksize-1)/blksize;
   const dim3 blockSize(blksize);
@@ -170,10 +154,6 @@ void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList 
 	      &alphaY,VT,n,UTb,n,
 	      &betaY,Adev,n);
 
-  std::vector<float> A_result(numLags*numComps*numComps,0);
-  cudaMemcpy(A_result.data(),Adev,sizeof(float)*n*numComps,cudaMemcpyDeviceToHost);
-  //for(int indx=0;indx<n*numComps;indx++)
-  //  std::cout << A_result[indx] << std::endl;
   
   
   const float alphaRes = -1.0f;
@@ -185,47 +165,22 @@ void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList 
   // RHS_DEVICE now contains the residuals.
   
   std::vector<float> residualsTmp(m*numComps,0);
-  std::vector<float> Rtrans(m*numComps,0);
+  std::vector<float> Rout(m*numComps,0);
   cudaMemcpy(residualsTmp.data(),RHS_DEVICE,sizeof(float)*numComps*m,cudaMemcpyDeviceToHost);
 
   for(int row=0;row<numComps;row++)
     for(int col=0;col<m;col++)
-      Rtrans[col*numComps+row] = residualsTmp[row*m+col];
-       
-  // This data list stuff is a pain in the ass. A class is nice, but some changes are necessary.
+      Rout[col*numComps+row] = residualsTmp[row*m+col];
 
-  //for(int iter=0;iter<numComps*numEpochs*epochAdj;iter++)
-  //  std::cout << Rtrans[iter] << std::endl;
-    
-  convertRawArrayToDataList(Rtrans.data(),R,numComps,epochAdj,numEpochs); 
-  
-  matrix lagTmp;
-  // Test print elements of A.
-  //for(int row=0;row<n;row++)
-  //  {
-  //    for(int col=0;col<numComps;col++)
-  // {
-  //	  std::cout << A_result[col*n+row] << " ";
-  //	}
-  //  std::cout << std::endl;
-  //}
+  std::vector<float> Aout(numComps*numComps*numLags);
+  std::vector<float> Ahost(numLags*numComps*numComps,0);
+  cudaMemcpy(Ahost.data(),Adev,sizeof(float)*n*numComps,cudaMemcpyDeviceToHost);
+  for(int row=0;row<numComps;row++)
+    for(int col=0;col<numComps*numLags;col++)
+      Aout[col*numComps+row] = Ahost[row*numComps*numLags+col];
+ 
 
-  
-  
-  for(int lag=0;lag<numLags;lag++)
-    {
-      for(int col=0;col<numComps;col++)
-	for(int row=0;row<numComps;row++)
-	  {
-	    // Transpose and copy.
-	    lagTmp.elements.push_back(A_result[row*numLags*numComps+col+lag*numComps]);
-	  }
-
-      A.lagMatrices.push_back(lagTmp);
-      lagTmp.elements.clear();
-    }
-
-  
+  MVAR<float> toReturn(Aout,Rout,numComps,lagList);
   
   cudaFree(LHS_DEVICE);
   cudaFree(RHS_DEVICE);
@@ -240,7 +195,7 @@ void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList 
   cublasDestroy(cublasH);
   cusolverDnDestroy(cusolverH);
 
-  return;
+  return toReturn;
 }
 
 void orthonormalizeR(dataList residuals, dataList &ortho_residuals, matrix &L)
@@ -248,60 +203,61 @@ void orthonormalizeR(dataList residuals, dataList &ortho_residuals, matrix &L)
   PCA(residuals, ortho_residuals, L);
 }
 
-void rotate_model(ARmodel &A, matrix L)
+MVAR<float> rotate_model(MVAR<float> model, std::vector<float> L)
 {
-
-  int M = sqrt(L.elements.size()); // Matrix dimension
-  int numLags = A.lagMatrices.size(); // number of lags
+  int numComps = model.numComps;
+  int numLags = model.lagList.size();
+  // Check that the vector L is the correct size
+  int N = model.R.size()/numComps;
+  if(L.size() != numComps*numComps)
+    {
+      std::cout << "When transforming the model to have orthonormal residuals, the transformation matrix is the wrong size" << std::endl;
+      exit(1);
+    }
+  
   int info1,info2; // Error checking
-  matrix LBAK; // The original will be changing, it is easiest to just make a copy. 
-  LBAK.elements = L.elements;
+  std::vector<float> LBAK(L);
 
   // Invert the matrix
   // Uses LAPACK to LU=A (trf) and back solve (tri)
-  std::vector<int> ipiv(M,0);
+  std::vector<int> ipiv(numComps,0);
   
-  info1 = LAPACKE_sgetrf(LAPACK_COL_MAJOR,M,M,L.elements.data(),M,ipiv.data());
-  info2 = LAPACKE_sgetri(LAPACK_COL_MAJOR,M,L.elements.data(),M,ipiv.data());
+  info1 = LAPACKE_sgetrf(LAPACK_COL_MAJOR,numComps,numComps,L.data(),numComps,ipiv.data());
+  info2 = LAPACKE_sgetri(LAPACK_COL_MAJOR,numComps,L.data(),numComps,ipiv.data());
   if(info1 != 0 || info2 != 0)
     {
-      // Put some diagnostics here - 
-
-      printf("Error inverting the residual transformation matrix \n");
-      exit(0);
+      std::cout << "When transforming the model to have orthonormal residuals, the transformation matrix did not invert" << std::endl;
+      exit(1);
     }
-  /*printf("The inverse \n");
-  for(int row=0;row<M;row++)
-    {
-      for(int col=0; col<M;col++)
-	{
-	  printf("%f ",L.elements[col*M+row]);
-
-	}
-      printf("\n");
-      }*/
   
   // Multiply L A L^-1 for each lag matrix in the AR model
   const float alpha=1.0f;
   const float beta=0.0f;
 
-  std::vector<float> tmp(M*M,0);
+  std::vector<float> Aout(model.A);
   for(int lag=0; lag<numLags; lag++)
     {
+      std::vector<float> lagMat = model.getLag(lag);
+      std::vector<float> tmp(numComps*numComps,0.0);
+      cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans,
+		  numComps,numComps,numComps,alpha,LBAK.data(),numComps,
+		  lagMat.data(),numComps,// Left here.
+		  beta, tmp.data(),numComps);
       
       cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans,
-		  M,M,M,alpha,LBAK.elements.data(), M,
-		  A.lagMatrices[lag].elements.data(),M,
-		  beta, tmp.data(),M);
-      
-
-      cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans,
-		  M,M,M, alpha,tmp.data(),M,
-		  L.elements.data(),M,
-		  beta, A.lagMatrices[lag].elements.data(),M);
+		  numComps,numComps,numComps, alpha,tmp.data(),numComps,
+		  L.data(),numComps,
+		  beta,Aout.data()+lag*numComps*numComps,numComps);
     }
+  std::vector<float> Rout(model.R);
+  cblas_sgemm(CblasColMajor,CblasNoTrans,CblasNoTrans,
+	      numComps,N,numComps,
+	      alpha,LBAK.data(),numComps,model.R.data(),numComps,
+	      beta,Rout.data(),numComps);
+
   
   
-  return;
+  MVAR<float> ARout(Aout,Rout,numComps,model.lagList);
+  return
 }
 	

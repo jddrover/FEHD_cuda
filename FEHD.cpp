@@ -11,7 +11,7 @@
 #include <cblas.h>
 #include "timeSeriesOPs.h"
 // Main call. Executes the FEHD algorithm
-void runFEHD(dataList dataArray, std::vector<float> &Lmat, paramContainer params)
+void runFEHD(dataClass<float> dataArray, std::vector<float> &Lmat, paramContainer params)
 {
   // Set the parameters for sgemm. 
   float alpha=1.0f;
@@ -19,7 +19,8 @@ void runFEHD(dataList dataArray, std::vector<float> &Lmat, paramContainer params
 
   
   std::vector<float> bestAngle;
-  matrix Rdecor; // Another example - it's the pca function.
+  std::vector<float> Rdecor;
+  //  matrix Rdecor; // Another example - it's the pca function.
   std::vector<float> Q; // The rotation matrix, resized at each step.
   std::vector<float> T(params.numPCs*params.numPCs,0); // The "work" transformation
   std::vector<float> oneArrayData; // Holds the data without epoch boundaries.
@@ -29,7 +30,6 @@ void runFEHD(dataList dataArray, std::vector<float> &Lmat, paramContainer params
   // the least causal component at each stage.
   for(int numComps = params.numPCs;numComps>1;numComps--)
     {
-      
       Rdecor.elements.clear();
       bestAngle.resize(numComps-1);
       // Find the angle that results smallest upward causality.
