@@ -8,8 +8,9 @@
 #include <algorithm>
 #include <cusolverDn.h>
 #include <cuda_runtime.h>
-#include "timeSeriesOPs.h"
+//#include "timeSeriesOPs.h"
 #include "dataClass.h"
+#include "dataCompute.h"
 
 MVAR<float> mkARGPU(dataClass<float> dataArray,paramContainer params)
 {
@@ -24,12 +25,13 @@ MVAR<float> mkARGPU(dataClass<float> dataArray,paramContainer params)
   int maxLag = *std::max_element(lagList.begin(),lagList.end());
   std::sort(lagList.begin(),lagList.end());
   int numLags = lagList.size();
-
+  //std::cout << numLags << std::endl;
+  //std::cout << numComps << std::endl;
   int epochAdj = epochPts-maxLag; // The lagged epochs are maxLag shorter.
   std::vector<float> RHS(epochAdj*numEpochs*numComps,0.0);
   std::vector<float> LHS(epochAdj*numEpochs*numComps*numLags,0.0);
 
-  for(int epoch=0;epoch<numComps;epoch++)
+  for(int epoch=0;epoch<numEpochs;epoch++)
     {
       std::vector<float> epochData = dataArray.isoEpoch(epoch).dataArray();
       std::copy(epochData.begin()+numComps*maxLag,epochData.end(),RHS.begin()+epoch*epochAdj*numComps);
@@ -49,7 +51,8 @@ MVAR<float> mkARGPU(dataClass<float> dataArray,paramContainer params)
   for(int rowindx=0;rowindx<epochAdj*numEpochs;rowindx++)
     for(int colindx=0;colindx<numComps;colindx++)
       RHST[rowindx+colindx*epochAdj*numEpochs] = RHS[colindx+rowindx*numComps];
-  
+
+  //std::cout << "G1" << std::endl;
   float *LHS_DEVICE = nullptr;
   float *RHS_DEVICE = nullptr;
   float *LHS_DEVICE_BACKUP = nullptr; // gesvd destroys the input, and we need it later.
@@ -76,7 +79,7 @@ MVAR<float> mkARGPU(dataClass<float> dataArray,paramContainer params)
   // Problem dimensions, to save typing.
   int m = numEpochs*epochAdj;
   int n = numLags*numComps;
-
+  //std::cout << "G2" << std::endl;
   float *d_rwork = nullptr; // This is an option. I really don't want to deal with it.
   int *devInfo = nullptr;
   cudaMalloc(&devInfo,sizeof(int));
@@ -135,7 +138,7 @@ MVAR<float> mkARGPU(dataClass<float> dataArray,paramContainer params)
   cublasSgemm(cublasH,CUBLAS_OP_T,CUBLAS_OP_N,n,numComps,m,
 	      &alphaY,U,m,RHS_DEVICE,m,
 	      &betaY,UTb,n);
-    
+  //std::cout << "G3" << std::endl;  
   int blksize = 1024;
   int grdsize = (int)(m*n+blksize-1)/blksize;
   const dim3 blockSize(blksize);
@@ -147,14 +150,14 @@ MVAR<float> mkARGPU(dataClass<float> dataArray,paramContainer params)
   //cudaMemcpy(UTbhost.data(),UTb,sizeof(float)*n*numComps,cudaMemcpyDeviceToHost);
   //  for(int indx=0;indx<n*numComps;indx++)
   //std::cout << UTbhost1[indx] << " " << UTbhost[indx] << std::endl;
-
+  //std::cout << "G4" << std::endl;
   float *Adev = nullptr;
   cudaMalloc(&Adev,sizeof(float)*n*numComps); 
   cublasSgemm(cublasH,CUBLAS_OP_T,CUBLAS_OP_N,n,numComps,n,
 	      &alphaY,VT,n,UTb,n,
 	      &betaY,Adev,n);
 
-  
+  //std::cout << "G5" << std::endl;
   
   const float alphaRes = -1.0f;
   const float betaRes = 1.0f;
@@ -167,7 +170,7 @@ MVAR<float> mkARGPU(dataClass<float> dataArray,paramContainer params)
   std::vector<float> residualsTmp(m*numComps,0);
   std::vector<float> Rout(m*numComps,0);
   cudaMemcpy(residualsTmp.data(),RHS_DEVICE,sizeof(float)*numComps*m,cudaMemcpyDeviceToHost);
-
+  //std::cout << "G6" << std::endl;
   for(int row=0;row<numComps;row++)
     for(int col=0;col<m;col++)
       Rout[col*numComps+row] = residualsTmp[row*m+col];
@@ -179,9 +182,10 @@ MVAR<float> mkARGPU(dataClass<float> dataArray,paramContainer params)
     for(int col=0;col<numComps*numLags;col++)
       Aout[col*numComps+row] = Ahost[row*numComps*numLags+col];
  
-
+  //std::cout << "G6.1" << std::endl;
   MVAR<float> toReturn(Aout,Rout,numComps,lagList);
-  
+  //std::cout << "G6.2" << std::endl;
+
   cudaFree(LHS_DEVICE);
   cudaFree(RHS_DEVICE);
   cudaFree(LHS_DEVICE_BACKUP);
@@ -194,14 +198,14 @@ MVAR<float> mkARGPU(dataClass<float> dataArray,paramContainer params)
   cudaFree(devInfo);
   cublasDestroy(cublasH);
   cusolverDnDestroy(cusolverH);
-
+  //std::cout << "G7" << std::endl;
   return toReturn;
 }
 
-void orthonormalizeR(dataList residuals, dataList &ortho_residuals, matrix &L)
-{
-  PCA(residuals, ortho_residuals, L);
-}
+//void orthonormalizeR(dataList residuals, dataList &ortho_residuals, matrix &L)
+//{
+//  PCA(residuals, ortho_residuals, L);
+//}
 
 MVAR<float> rotate_model(MVAR<float> model, std::vector<float> L)
 {

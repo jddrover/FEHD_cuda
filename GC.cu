@@ -1,7 +1,7 @@
 #include "GC.h"
 #include "dataContainers.h"
 #include "utility.h"
-#include "timeSeriesOPs.h"
+//#include "timeSeriesOPs.h"
 #include <vector>
 #include <math.h>
 #include <cuda_runtime.h>
@@ -16,6 +16,9 @@
 #include "cuda_runtime_api.h"
 #include "workArray.h"
 #include "dataClass.h"
+#include "dataCompute.h"
+
+
 
 void granger(std::vector<float> angleArray,
 	     std::vector<float> &GCvals, paramContainer params,
@@ -253,14 +256,29 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
  
   srand((unsigned)time(0));
 
+  
+
   MVAR<float> model = mkARGPU(dataArray,params);
+
   int maxLag = *std::max_element(model.lagList.begin(),model.lagList.end());
   int epochAdj = dataArray.getEpochPoints() - maxLag;
   dataClass<float> residuals(epochAdj,dataArray.getNumComps(),model.R,dataArray.getSampRate());
-  L = PCA(residuals);
 
-  MVAR<float> rModel = rotate_model(model,L);
+  std::vector<float> Dmat = PCA(residuals);
 
+  MVAR<float> rModel = rotate_model(model,Dmat);
+  /*
+  for(int row=0;row<12;row++)
+    {
+      for(int col=0;col<36;col++)
+	std::cout << rModel.A[col*12+row] << " ";
+      std::cout << std::endl;
+    }
+  */
+  
+
+  //L.resize(Dmat.size());
+  std::copy(Dmat.begin(),Dmat.end(),L.begin());
   
   // The step-sizes to check along the (-)gradient.
   std::vector<float> h = {0.001f, 0.01f, 0.1f};
@@ -306,7 +324,7 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
 
   // Allocate all of the arrays need for the GC function. 
   workForGranger workArray;
-  allocateParams(workArray,numComps,particleBlockSize,params,lagList,rModel.A);
+  allocateParams(workArray,numComps,particleBlockSize,params,model.lagList,rModel.A);
    
   // Angle arrays.
   std::vector<std::vector<float>> angleArray;

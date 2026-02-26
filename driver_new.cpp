@@ -61,6 +61,7 @@ int main(int argc, char** argv)
 
   std::vector<float> PCTrans = PCA(dataRM);
   dataClass<float> PC = linearTrans(dataRM,PCTrans);
+  int PCTransDim = PC.getNumComps();
   //std::cout << PC.getNumComps() << std::endl;
   if(PC.getNumComps() < params.numPCs)
     {
@@ -72,15 +73,13 @@ int main(int argc, char** argv)
   for(int comp=0;comp<params.numPCs;comp++)
     compsToKeep.push_back(comp);
   PC.keepComponents(compsToKeep);
-  std::cout << PC.getNumComps() << std::endl;
   
-   
   std::vector<float> LmatTrimmed(params.numPCs*params.numChannels,0);
   // Need to trim PCtrans to numPCs rows;
   for(int row=0;row<params.numPCs;row++)
     for(int col=0;col<params.numChannels;col++)
-      LmatTrimmed[col*params.numPCs+row] = PCtrans[col*params.numChannels+row];
-      	  
+      LmatTrimmed[col*params.numPCs+row] = PCTrans[col*PCTransDim+row];
+
   // Run FEHD on the principal components.
   // This is where the algorithm begins on the principal components determined above. 
   runFEHD(PC, LmatTrimmed, params);

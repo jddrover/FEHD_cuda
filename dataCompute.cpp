@@ -361,7 +361,7 @@ MVAR<float> mkAR(dataClass<float> datain,std::vector<int> lagList,float P)
       R[col*numComps+row] = RHS[row*m+col];
 
 
-  MVAR<float> toReturn(A,R,numComps,numLags);
+  MVAR<float> toReturn(A,R,numComps,lagList);
   return toReturn;
 }
 
@@ -413,7 +413,6 @@ std::vector<float> PCA(dataClass<float> datain)
       cblas_sscal(numComps,scaleFactor,VT.data()+indx,numComps);
       cblas_scopy(numComps,VT.data()+indx,numComps,Tmat.data()+indx,nonZeroSingVals);
     }
-  // This SHOULD be a vector. It is a transformation matrix. I also want to return
-  // the pca data, however unecessary. No, I don't. This works. 
+
   return Tmat;
 }

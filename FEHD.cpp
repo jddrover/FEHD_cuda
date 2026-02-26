@@ -9,7 +9,9 @@
 #include "utility.h"
 #include <chrono>
 #include <cblas.h>
-#include "timeSeriesOPs.h"
+#include "dataClass.h"
+#include "dataManip.h"
+//#include "timeSeriesOPs.h"
 // Main call. Executes the FEHD algorithm
 void runFEHD(dataClass<float> dataArray, std::vector<float> &Lmat, paramContainer params)
 {
@@ -17,38 +19,56 @@ void runFEHD(dataClass<float> dataArray, std::vector<float> &Lmat, paramContaine
   float alpha=1.0f;
   float beta=0.0f;
 
-  
-
   dataClass<float> dataiter = dataArray;
 
-  // Start at numPCs, work down to 2, removing (straight up, it is now an n-1 dimensional system)
-  // the least causal component at each stage.
+  // Start at numPCs, work down to 2, determining the least causal combination at each stage.
   for(int numComps = params.numPCs;numComps>1;numComps--)
     {
-      std::vector<float> Rdecor;
+      std::vector<float> Rdecor(numComps*numComps);
       std::vector<float> bestAngle(numComps-1);
-
+      
       // Find the angle that results smallest upward causality.
+      
       runFEHDstep(bestAngle, Rdecor, dataiter, params, numComps);
+
       // Local Q, going to assemble from the angles.
       std::vector<float> Q(numComps*numComps);      
       singleQ(Q,bestAngle);
-
+      /*
+      for(int row=0;row<numComps;row++)
+	{
+	  for(int col=0;col<numComps;col++)
+	    std::cout << Q[col*numComps+row] << " ";
+	  std::cout << std::endl;
+	}
+      */
+      
       std::vector<float> T(numComps*numComps);
-      std::fill(T.begin(),T.end(), 0.0f);
-
+      
       cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans,
 		  numComps,numComps,numComps,
 		  alpha,Q.data(),numComps,
 		  Rdecor.data(),numComps,
 		  beta,T.data(),numComps);
 
+      /*
+      for(int row=0;row<numComps;row++)
+	{
+	  for(int col=0;col<numComps;col++)
+	    std::cout << T[col*numComps+row] << " ";
+	  std::cout << std::endl;
+	}
+      */
+      
       // Transform the data      
-      std::vector<float> dataVec = dataiter.dataArray();
-      std::vector<float> Ldata = linearTrans(dataVec,T);
-      Ldata.removeComponent(numComps-1);
 
+      dataClass<float> Ldata = linearTrans(dataiter,T);
+      Ldata.removeComponent(numComps-1);
+      //std::cout << Ldata.dataArray().size() << std::endl;
+      //std::cout << Ldata.getNumComps() << std::endl;
+      //std::cout << Ldata.getTotalPoints() << std::endl;
       dataiter = Ldata;
+      
       // Update the transformation
 
       std::vector<float> largeT(params.numPCs*params.numPCs,0.0);
@@ -57,13 +77,13 @@ void runFEHD(dataClass<float> dataArray, std::vector<float> &Lmat, paramContaine
       for(int colindx=0;colindx<numComps;colindx++)
 	for(int rowindx=0;rowindx<numComps;rowindx++)
 	  largeT[colindx*params.numPCs+rowindx] = T[colindx*numComps+rowindx];
-
-      std::vector<float> newTrans(params.numPCs*params.numPCs);
+      std::cout << Lmat.size() << std::endl;// This might be a mess.
+      std::vector<float> newTrans(Lmat);
       cblas_sgemm(CblasColMajor,CblasNoTrans,CblasNoTrans,
 		  params.numPCs,params.numChannels,params.numPCs,
 		  alpha, largeT.data(),params.numPCs,
-		  Lmat.data(),params.numPCs,
-		  beta, newTrans.data(), params.numPCs);
+		  newTrans.data(),params.numPCs,
+		  beta, Lmat.data(), params.numPCs);
 
       Lmat = newTrans;
     }
