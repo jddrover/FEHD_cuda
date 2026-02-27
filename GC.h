@@ -1,6 +1,5 @@
 #ifndef GC_H
 #define GC_H
-#include "dataContainers.h"
 #include <vector>
 #include "utility.h"
 #include <cuda_runtime.h>

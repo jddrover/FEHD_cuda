@@ -1,6 +1,6 @@
 #ifndef FEHD_H
 #define FEHD_H
-#include "dataContainers.h"
+//#include "dataContainers.h"
 #include "utility.h"
 #include <dataClass.h>
 // Computes the gradient for multiple rotations of an AR model.

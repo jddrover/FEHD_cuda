@@ -4,6 +4,7 @@
 #include <vector>
 
 
+
 struct paramContainer
 {
   std::string filename;
@@ -51,5 +52,6 @@ void setFLAGStoZero(paramContainer &params);
 void printParams(paramContainer params);
 void printMatrixfloat(float *M, int lda, int numRows, int numCols);
 void loadLagList(paramContainer &params);
+void loadFile(std::string,std::vector<float> &);
 
 #endif

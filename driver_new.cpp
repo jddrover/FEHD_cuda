@@ -1,7 +1,4 @@
 #include "utility.h"
-#include "timeSeriesOPs.h"
-#include "dataContainers.h"
-#include "mkARGPU.h"
 #include "FEHD.h"
 #include <vector>
 #include <iostream>
@@ -11,7 +8,6 @@
 
 int main(int argc, char** argv)
 {
-
   // The paramContainer object contains all of the analysis parameters
   // such as sampling rate and the number of particles for the optimizer.
   paramContainer params;
@@ -29,14 +25,11 @@ int main(int argc, char** argv)
       return -1;
     }
 
-
   std::vector<float> dataArray;
   loadFile(params.filename, dataArray);
 
   dataClass<float> dataSet(params.epochPts,params.numChannels,dataArray,params.sampRate);
   dataClass<float> dataRM = removeMean(dataSet);
-
-
   
   // If the laglist was given in a file, load the file.
   if(params.lagListFLAG == 1)
@@ -62,7 +55,7 @@ int main(int argc, char** argv)
   std::vector<float> PCTrans = PCA(dataRM);
   dataClass<float> PC = linearTrans(dataRM,PCTrans);
   int PCTransDim = PC.getNumComps();
-  //std::cout << PC.getNumComps() << std::endl;
+
   if(PC.getNumComps() < params.numPCs)
     {
       std::cout << "Too many Principal Components requested." << std::endl;
@@ -81,9 +74,9 @@ int main(int argc, char** argv)
       LmatTrimmed[col*params.numPCs+row] = PCTrans[col*PCTransDim+row];
 
   // Run FEHD on the principal components.
-  // This is where the algorithm begins on the principal components determined above. 
   runFEHD(PC, LmatTrimmed, params);
-  // Write the transformation matrix to file. 
+  // Write the transformation matrix to file.
+  // This could use an update.
   writeOutput(LmatTrimmed.data(), params);
   
   return 0;

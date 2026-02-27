@@ -365,3 +365,24 @@ void loadLagList(paramContainer &params)
   return;
 }
 
+void loadFile(std::string filename,std::vector<float> &dataSet)
+{
+  if(dataSet.size() != 0)
+    {
+      std::cout << "The vector provided is not empty" << std::endl;
+      exit(1);
+    }
+  std::ifstream dStream(filename);
+  // Check if the file was opened.
+  if(!dStream.is_open())
+    {
+      std::cout << "Could not open file" << std::endl;
+      exit(1);
+    }
+  float tempVal;
+
+  while (dStream >> tempVal)
+    dataSet.push_back(tempVal);
+
+  return;
+}

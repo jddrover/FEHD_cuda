@@ -1,5 +1,5 @@
 #include "GC.h"
-#include "dataContainers.h"
+//#include "dataContainers.h"
 #include "utility.h"
 //#include "timeSeriesOPs.h"
 #include <vector>
@@ -252,37 +252,28 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
   // Determine the available memory on the GPU
   int id;
   size_t freemem,total;
-  cudaGetDevice(&id);
- 
+  cudaGetDevice(&id); // I am not sure where I use this.
+  // Random seed
   srand((unsigned)time(0));
-
-  
-
+  // Create MVAR model for the data using the lags in params.
   MVAR<float> model = mkARGPU(dataArray,params);
-
+  // Some abbreviations
   int maxLag = *std::max_element(model.lagList.begin(),model.lagList.end());
   int epochAdj = dataArray.getEpochPoints() - maxLag;
+  // Put the residuals in a container and get the PC transformation matrix,
+  // use it to rotate the model to have orthonormal residuals
+  // (which there is no need to compute). 
   dataClass<float> residuals(epochAdj,dataArray.getNumComps(),model.R,dataArray.getSampRate());
-
   std::vector<float> Dmat = PCA(residuals);
-
   MVAR<float> rModel = rotate_model(model,Dmat);
-  /*
-  for(int row=0;row<12;row++)
-    {
-      for(int col=0;col<36;col++)
-	std::cout << rModel.A[col*12+row] << " ";
-      std::cout << std::endl;
-    }
-  */
-  
-
-  //L.resize(Dmat.size());
+  // Copy to the vector that is returned (passed by reference, for now).
   std::copy(Dmat.begin(),Dmat.end(),L.begin());
   
   // The step-sizes to check along the (-)gradient.
   std::vector<float> h = {0.001f, 0.01f, 0.1f};
 
+  // This stuff is all used below and should be put below.
+  // A lot of it should be in for loop scope only. 
   std::vector<float> candidates(4,0);
   int minIndx;
   float allBlockMin=10000.0; // Just needs a somewhat large value. Will be set below.
@@ -299,6 +290,7 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
   paramContainer paramsReset = params;
 
   // Determine how to break up the analysis so that it fits on the GPU.
+  // Query the GPU for memory situation
   int numBlocks, particleBlockSize;
   cudaMemGetInfo(&freemem, &total);
 
@@ -307,7 +299,7 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
       printf("memory free = %ld bytes \n",freemem);
       printf("total memory = %ld bytes \n",total);
     }
-  
+  // Add up all of the memory we need, and divide into equally sized blocks
   computeBlocks(numBlocks,particleBlockSize,freemem,params,numComps);
   
   paramContainer paramsBLOCKED = params;
@@ -406,11 +398,9 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
       // Evaluate the minimization candidates.
       for(int block=0;block<numBlocks;block++)
 	{
-
 	  granger(angleArray1[block],GCvals1[block],paramsBLOCKED,numComps,workArray);
 	  granger(angleArray2[block],GCvals2[block],paramsBLOCKED,numComps,workArray);
 	  granger(angleArray3[block],GCvals3[block],paramsBLOCKED,numComps,workArray);
-
 	}
 
       
@@ -418,7 +408,6 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
       // Recycle the particles that are local minima.
       for(int block=0;block<numBlocks;block++)
 	{
-
 	  minimumGC = std::distance(GCvals[block].begin(),std::min_element(GCvals[block].begin(),GCvals[block].end()));
 
 	  resetList.clear();
@@ -490,9 +479,7 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
       
       allBlockMin = GCmin[minBlockNumber];
       allBlockParticle = minBlockNumber*particleBlockSize+GCminIndex[minBlockNumber];
-
-      
-      
+            
       if(params.verbose)
       	printf("iteration = %i, particle = %li, value = %e, exit count = %i \n",
 	       iter,allBlockParticle,allBlockMin,STATIONARY_COUNT);
