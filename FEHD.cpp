@@ -34,14 +34,6 @@ void runFEHD(dataClass<float> dataArray, std::vector<float> &Lmat, paramContaine
       // Local Q, going to assemble from the angles.
       std::vector<float> Q(numComps*numComps);      
       singleQ(Q,bestAngle);
-      /*
-      for(int row=0;row<numComps;row++)
-	{
-	  for(int col=0;col<numComps;col++)
-	    std::cout << Q[col*numComps+row] << " ";
-	  std::cout << std::endl;
-	}
-      */
       
       std::vector<float> T(numComps*numComps);
       
@@ -50,23 +42,12 @@ void runFEHD(dataClass<float> dataArray, std::vector<float> &Lmat, paramContaine
 		  alpha,Q.data(),numComps,
 		  Rdecor.data(),numComps,
 		  beta,T.data(),numComps);
-
-      /*
-      for(int row=0;row<numComps;row++)
-	{
-	  for(int col=0;col<numComps;col++)
-	    std::cout << T[col*numComps+row] << " ";
-	  std::cout << std::endl;
-	}
-      */
       
       // Transform the data      
 
       dataClass<float> Ldata = linearTrans(dataiter,T);
       Ldata.removeComponent(numComps-1);
-      //std::cout << Ldata.dataArray().size() << std::endl;
-      //std::cout << Ldata.getNumComps() << std::endl;
-      //std::cout << Ldata.getTotalPoints() << std::endl;
+
       dataiter = Ldata;
       
       // Update the transformation
@@ -77,21 +58,16 @@ void runFEHD(dataClass<float> dataArray, std::vector<float> &Lmat, paramContaine
       for(int colindx=0;colindx<numComps;colindx++)
 	for(int rowindx=0;rowindx<numComps;rowindx++)
 	  largeT[colindx*params.numPCs+rowindx] = T[colindx*numComps+rowindx];
-      std::cout << Lmat.size() << std::endl;// This might be a mess.
+      
       std::vector<float> newTrans(Lmat);
       cblas_sgemm(CblasColMajor,CblasNoTrans,CblasNoTrans,
 		  params.numPCs,params.numChannels,params.numPCs,
 		  alpha, largeT.data(),params.numPCs,
 		  newTrans.data(),params.numPCs,
 		  beta, Lmat.data(), params.numPCs);
-
-      Lmat = newTrans;
-    }
-  
+    }  
   return;
 }
-
-
 
 void singleQ(std::vector<float> &Q, std::vector<float> angle)
 {
