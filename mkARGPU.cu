@@ -12,8 +12,6 @@
 
 MVAR<float> mkARGPU(dataClass<float> dataArray,paramContainer params)
 {
-  // I have the means to pass parameters, I find these objects I made intrusive.
-
   int numEpochs = dataArray.getNumEpochs();
   int epochPts = dataArray.getEpochPoints();
   int numComps = dataArray.getNumComps();
@@ -23,8 +21,7 @@ MVAR<float> mkARGPU(dataClass<float> dataArray,paramContainer params)
   int maxLag = *std::max_element(lagList.begin(),lagList.end());
   std::sort(lagList.begin(),lagList.end());
   int numLags = lagList.size();
-  //std::cout << numLags << std::endl;
-  //std::cout << numComps << std::endl;
+
   int epochAdj = epochPts-maxLag; // The lagged epochs are maxLag shorter.
   std::vector<float> RHS(epochAdj*numEpochs*numComps,0.0);
   std::vector<float> LHS(epochAdj*numEpochs*numComps*numLags,0.0);
@@ -44,7 +41,6 @@ MVAR<float> mkARGPU(dataClass<float> dataArray,paramContainer params)
   for(int rowindx=0;rowindx<epochAdj*numEpochs;rowindx++)
     for(int colindx=0;colindx<numComps*numLags;colindx++)
       LHST[rowindx+colindx*epochAdj*numEpochs] = LHS[colindx+rowindx*numComps*numLags];
-      
   std::vector<float> RHST(RHS.size());
   for(int rowindx=0;rowindx<epochAdj*numEpochs;rowindx++)
     for(int colindx=0;colindx<numComps;colindx++)
