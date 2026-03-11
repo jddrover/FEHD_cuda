@@ -163,14 +163,14 @@ void setUpParameters(int argc,char** argv,paramContainer &params)
   params.numEpochs = (int)(params.numPoints/params.epochPts);
 
   // Check that this divides right.
-
-  if(params.numEpochs*params.epochPts != params.numPoints)
+  // I am going to let this go. The dataClass will handle this problem
+  /*if(params.numEpochs*params.epochPts != params.numPoints)
     {
       std::cout << "The number of points do not divide into an integral number of epochs" << std::endl;
       std::cout << "Trimming the data off the end to fit." << std::endl;
 
       params.numPoints = params.numEpochs*params.epochPts;
-    }
+      }*/
   
   if(params.numPCsFLAG == 0)
     throw std::invalid_argument("Number of principal components not specified (-numPCs). Exiting.");
