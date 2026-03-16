@@ -2,6 +2,26 @@
 #include <stdio.h>
 #include <cuComplex.h>
 
+// Do the scaling for the S, including removing singular values that are too small.
+
+__global__
+void scaleByS(float *S,float *X,int m,int n,float tol)
+{
+  const int idx = threadIdx.x+blockDim.x*blockIdx.x;
+
+  if(idx >= m*n) {return;}
+  
+  int rowIndx = idx-int(idx/m)*m;
+
+  if(S[rowIndx]<tol)
+    {
+      X[idx] = 0.0;
+      return;
+    }
+  X[idx] = X[idx]/S[rowIndx];    
+}
+
+
 // Transpose individual block matrices. 
 __global__
 void transposeBlockMatrices(float *A, float *B, int M, int P, int L)
@@ -161,6 +181,7 @@ void scale_columns(float2 *TF,int numComps, int numParticles, int numFreqs)
 }
 // Shrinks an array of matrices so that the matrices size decreases by one.
 // Simply removes the last column and row of each matrix.
+
 __global__
 void shrinkArrays(float2 *S1, float2 *S2, int numComps, int numParticles, int numFreqs)
 {
@@ -180,8 +201,30 @@ void shrinkArrays(float2 *S1, float2 *S2, int numComps, int numParticles, int nu
 
   return;
 }
-// Multiplies eigenvalues together to get determinant.
+
 __global__
+void compGC(float *W,float *pdet, float *wdet,int numComps,int numParticles,int numFreqs)
+{
+  const int idx = threadIdx.x+blockDim.x*blockIdx.x;
+
+  if(idx >= numParticles) {return;} // The number of eigenvalues is comps*freqs*parts
+  
+  W[idx] = 0.0;
+  
+  for(int freq=0;freq<numFreqs;freq++)
+    {
+      float tmp = 1.0;
+      for(int comp=0;comp<numComps;comp++)
+	{
+	  tmp *= pdet[idx*numComps*numFreqs+freq*numComps+comp]/wdet[idx*numComps*numFreqs+freq*numComps+comp];
+	}
+      W[idx] += logf(tmp);
+    }
+  
+  return;
+}
+// Multiplies eigenvalues together to get determinant.
+/*__global__
 void prodEigs(float *W, float *det, int numComps, int numParticles, int numFreqs)
 {
   const int idx = threadIdx.x+blockDim.x*blockIdx.x;
@@ -191,12 +234,13 @@ void prodEigs(float *W, float *det, int numComps, int numParticles, int numFreqs
   extern __shared__ float s2[];
 
   const int sidx = threadIdx.x;
-  
-  
+    
   s2[sidx] = 1.0;
 
+  // Do I amplify these things? If I do?
   for(int comp=0;comp<numComps;comp++)
     {
+      printf("W val %e \n",W[idx*numComps+comp]);
       if(W[idx*numComps+comp]<=0.0){
 	printf("particle %i, comp %i \n",idx,comp);
 	printf("diagonal = %e \n",W[idx*numComps+comp]);
@@ -207,8 +251,8 @@ void prodEigs(float *W, float *det, int numComps, int numParticles, int numFreqs
 
   return;
 
-}
-
+  }*/
+/*
 __global__
 void det2GC(float *d_partial, float *d_whole, float *GC, int numParticles, int numFreqs)
 {
@@ -221,6 +265,8 @@ void det2GC(float *d_partial, float *d_whole, float *GC, int numParticles, int n
   for(int freq=0;freq<numFreqs;freq++)
     {
       ratio = d_partial[idx*numFreqs+freq]/d_whole[idx*numFreqs+freq];
+
+      //printf("%e ",d_whole[idx*numFreqs+freq]);
       
       if(ratio > 1.0f)
 	GC[idx]=GC[idx]+logf(ratio);
@@ -234,3 +280,4 @@ void det2GC(float *d_partial, float *d_whole, float *GC, int numParticles, int n
 
   return;
 }
+*/

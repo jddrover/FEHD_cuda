@@ -1,15 +1,13 @@
 #include "utility.h"
-#include "timeSeriesOPs.h"
-#include "dataContainers.h"
-#include "mkARGPU.h"
 #include "FEHD.h"
 #include <vector>
 #include <iostream>
-
+#include "dataClass.h"
+#include "dataManip.h"
+#include "dataCompute.h"
 
 int main(int argc, char** argv)
 {
-
   // The paramContainer object contains all of the analysis parameters
   // such as sampling rate and the number of particles for the optimizer.
   paramContainer params;
@@ -26,26 +24,13 @@ int main(int argc, char** argv)
       std::cerr << e.what() << std::endl;
       return -1;
     }
+
+  std::vector<float> dataArray;
+  loadFile(params.filename, dataArray);
+
+  dataClass<float> dataSet(params.epochPts,params.numChannels,dataArray,params.sampRate);
+  dataClass<float> dataRM = removeMean(dataSet);
   
-  // Declare a dataArray object.
-  // This is mine. It isn't a great fit here, but it does work for other purposes.
-  dataList dataArray;
-  // Load the data from file to memory.
-  try
-    {
-      loadFile(params.filename, params.numChannels, params.numEpochs, params.epochPts, dataArray);
-    }
-  catch (std::runtime_error e)
-    {
-      std::cerr << e.what() << std::endl;
-      return -1;
-    }
-
-  // Remove the mean of each channel, epoch by epoch.
-  // details in timeSeriesOPs.h
-
-  removeMean(dataArray);
-
   // If the laglist was given in a file, load the file.
   if(params.lagListFLAG == 1)
     {
@@ -60,41 +45,40 @@ int main(int argc, char** argv)
 	}
       params.numLags = params.lagList.size();
     }
+
   else // In the event it wasn't it just assigns a sequence up to the numLags parameter.
     {
       for(int lag=0;lag<params.numLags;lag++)
 	params.lagList.push_back(lag+1);
     }
+
+  std::vector<float> PCTrans = PCA(dataRM);
+  dataClass<float> PC = linearTrans(dataRM,PCTrans);
+  int PCTransDim = PC.getNumComps();
+
+  if(PC.getNumComps() < params.numPCs)
+    {
+      std::cout << "Too many Principal Components requested." << std::endl;
+      exit(1);
+    }
+
+  std::vector<int> compsToKeep;
+  for(int comp=0;comp<params.numPCs;comp++)
+    compsToKeep.push_back(comp);
+  PC.keepComponents(compsToKeep);
   
-  // Compute the principal components and discard unused components.
-  // We also need the transformation matrix that generates the principal components. 
-  // Each of these should have params.numPCs rows.
-
-  dataList PC;
-  matrix Lmat;
-
-  PCA(dataArray,PC,Lmat);
-  
-  std::vector<int> compsToRemove; // Empty, fill below
-
-  for(int comp=params.numPCs;comp<params.numChannels;comp++)
-    compsToRemove.push_back(comp);
-
   std::vector<float> LmatTrimmed(params.numPCs*params.numChannels,0);
-  
-  // Need to trim Lmat to numPCs rows;
+  // Need to trim PCtrans to numPCs rows;
   for(int row=0;row<params.numPCs;row++)
     for(int col=0;col<params.numChannels;col++)
-      LmatTrimmed[col*params.numPCs+row] = Lmat.elements[col*params.numChannels+row];
-	  
-  removeMultipleComponents(PC,compsToRemove);
+      LmatTrimmed[col*params.numPCs+row] = PCTrans[col*PCTransDim+row];
 
   // Run FEHD on the principal components.
-  // This is where the algorithm begins on the principal components determined above. 
   runFEHD(PC, LmatTrimmed, params);
-  // Write the transformation matrix to file. 
+  // Write the transformation matrix to file.
+  // This could use an update.
   writeOutput(LmatTrimmed.data(), params);
-    
+  
   return 0;
   
 }

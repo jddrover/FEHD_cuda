@@ -1,7 +1,9 @@
 #ifndef MKARGPU_H
 #define MKARGPU_H
+#include "utility.h"
+#include "dataClass.h"
 
-void mkARGPU(dataList, std::vector<int>, ARmodel &, dataList &);
-void orthonormalizeR(dataList, dataList &, matrix &);
-void rotate_model(ARmodel &, matrix L);
+MVAR<float> mkARGPU(dataClass<float>,paramContainer);
+//void orthonormalizeR(dataList, dataList &, matrix &);
+MVAR<float> rotate_model(MVAR<float>, std::vector<float>);
 #endif 

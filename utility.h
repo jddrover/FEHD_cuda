@@ -4,6 +4,7 @@
 #include <vector>
 
 
+
 struct paramContainer
 {
   std::string filename;
@@ -21,7 +22,7 @@ struct paramContainer
   int numEpochsFLAG;
   int numPoints;
   int numPointsFLAG;
-  int numPCs;
+  int numPCs;  
   int numPCsFLAG;
   int numLags;
   int numLagsFLAG;
@@ -42,6 +43,7 @@ struct paramContainer
   std::vector<int> lagList;
   int STUCKCOUNT;
   int STUCKCOUNTFLAG;
+  float Ptol;
 } ;
 
 void setUpParameters(int argc,char** argv,paramContainer &params);
@@ -50,5 +52,6 @@ void setFLAGStoZero(paramContainer &params);
 void printParams(paramContainer params);
 void printMatrixfloat(float *M, int lda, int numRows, int numCols);
 void loadLagList(paramContainer &params);
+void loadFile(std::string,std::vector<float> &);
 
 #endif

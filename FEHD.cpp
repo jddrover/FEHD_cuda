@@ -1,6 +1,6 @@
 #include <iostream>
 #include "FEHD.h"
-#include "dataContainers.h"
+//#include "dataContainers.h"
 #include "mkARGPU.h"
 #include <algorithm>
 #include <math.h>
@@ -9,82 +9,66 @@
 #include "utility.h"
 #include <chrono>
 #include <cblas.h>
-#include "timeSeriesOPs.h"
+#include "dataClass.h"
+#include "dataManip.h"
+//#include "timeSeriesOPs.h"
 // Main call. Executes the FEHD algorithm
-void runFEHD(dataList dataArray, std::vector<float> &Lmat, paramContainer params)
+void runFEHD(dataClass<float> dataArray, std::vector<float> &Lmat, paramContainer params)
 {
   // Set the parameters for sgemm. 
   float alpha=1.0f;
   float beta=0.0f;
 
-  
-  std::vector<float> bestAngle;
-  matrix Rdecor; // Another example - it's the pca function.
-  std::vector<float> Q; // The rotation matrix, resized at each step.
-  std::vector<float> T(params.numPCs*params.numPCs,0); // The "work" transformation
-  std::vector<float> oneArrayData; // Holds the data without epoch boundaries.
-  std::vector<float> transformedData; // Holds the new data without epoch boundaries.  
-  std::vector<float> newTrans(params.numPCs*params.numChannels); // Another worker.
-  // Start at numPCs, work down to 2, removing (straight up, it is now an n-1 dimensional system)
-  // the least causal component at each stage.
+  dataClass<float> dataiter = dataArray;
+
+  // Start at numPCs, work down to 2, determining the least causal combination at each stage.
   for(int numComps = params.numPCs;numComps>1;numComps--)
     {
+      std::vector<float> Rdecor(numComps*numComps);
+      std::vector<float> bestAngle(numComps-1);
       
-      Rdecor.elements.clear();
-      bestAngle.resize(numComps-1);
       // Find the angle that results smallest upward causality.
-      runFEHDstep(bestAngle, Rdecor, dataArray, params, numComps);
-      // Local Q, going to assemble from the angles.
-      Q.resize(numComps*numComps);
       
+      runFEHDstep(bestAngle, Rdecor, dataiter, params, numComps);
+
+      // Local Q, going to assemble from the angles.
+      std::vector<float> Q(numComps*numComps);      
       singleQ(Q,bestAngle);
-
-      std::fill(T.begin(),T.end(), 0.0f);
-
-      for(int i=numComps;i<params.numPCs;i++)
-	T[i*params.numPCs+i] = 1.0f;
-
+      
+      std::vector<float> T(numComps*numComps);
+      
       cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans,
 		  numComps,numComps,numComps,
 		  alpha,Q.data(),numComps,
-		  Rdecor.elements.data(),numComps,
-		  beta,T.data(),params.numPCs);
-
-      oneArrayData.resize(numComps*params.numEpochs*params.epochPts);
-      convertDataListToRawArray(dataArray, oneArrayData.data());
-
-      // Transform the data
+		  Rdecor.data(),numComps,
+		  beta,T.data(),numComps);
       
-      transformedData.resize(numComps*params.numEpochs*params.epochPts);
+      // Transform the data      
 
-      cblas_sgemm(CblasColMajor, CblasNoTrans,CblasNoTrans,
-		  numComps,params.numEpochs*params.epochPts,numComps,
-		  alpha,T.data(),params.numPCs,
-		  oneArrayData.data(), numComps,
-		  beta,transformedData.data(), numComps);
+      dataClass<float> Ldata = linearTrans(dataiter,T);
+      std::vector<int> compsToRemove = {numComps-1};
+      Ldata.removeComponents(compsToRemove);
 
-      // Convert it back into dataArray
-
-      convertRawArrayToDataList(transformedData.data(), dataArray, numComps, params.epochPts, params.numEpochs);
-
-      // Remove the last component
-      removeComponent(dataArray, numComps-1);
-
+      dataiter = Ldata;
+      
       // Update the transformation
 
+      std::vector<float> largeT(params.numPCs*params.numPCs,0.0);
+      for(int indx=numComps;indx<params.numPCs;indx++)
+	largeT[indx*params.numPCs+indx] = 1.0;
+      for(int colindx=0;colindx<numComps;colindx++)
+	for(int rowindx=0;rowindx<numComps;rowindx++)
+	  largeT[colindx*params.numPCs+rowindx] = T[colindx*numComps+rowindx];
+      
+      std::vector<float> newTrans(Lmat);
       cblas_sgemm(CblasColMajor,CblasNoTrans,CblasNoTrans,
 		  params.numPCs,params.numChannels,params.numPCs,
-		  alpha, T.data(),params.numPCs,
-		  Lmat.data(),params.numPCs,
-		  beta, newTrans.data(), params.numPCs);
-
-      Lmat = newTrans;
-    }
-  
+		  alpha, largeT.data(),params.numPCs,
+		  newTrans.data(),params.numPCs,
+		  beta, Lmat.data(), params.numPCs);
+    }  
   return;
 }
-
-
 
 void singleQ(std::vector<float> &Q, std::vector<float> angle)
 {

@@ -1,219 +1,392 @@
-#include "dataContainers.h"
+#include <iostream>
 #include "mkARGPU.h"
+#include "kernels.h"
 #include <vector>
 #include <cblas.h>
 #include <lapacke.h>
 #include <algorithm>
 #include <cusolverDn.h>
 #include <cuda_runtime.h>
-#include "timeSeriesOPs.h"
-void mkARGPU(dataList dataArray, std::vector<int> lagList, ARmodel &A, dataList &R)
+#include "dataClass.h"
+#include "dataCompute.h"
+
+MVAR<float> mkARGPU(dataClass<float> dataArray,paramContainer params)
 {
-  int numEpochs = dataArray.epochArray.size();
-  int epochPts = dataArray.epochArray[0].timePointArray.size();
-  int numComps = dataArray.epochArray[0].timePointArray[0].dataVector.size();
-  //int numPoints = numEpochs*epochPts;
+  int numEpochs = dataArray.getNumEpochs();
+  int epochPts = dataArray.getEpochPoints();
+  int numComps = dataArray.getNumComps();
   
-  matrix LHS;
-  matrix RHS;
-
-  // We want maxLag, not numLags
-  
+  // Determine the maximum lag and sort the lags into increasing order.
+  std::vector<int> lagList(params.lagList);
   int maxLag = *std::max_element(lagList.begin(),lagList.end());
-  int tpoint;
-  // Sort the lag list in reverse order, so everything matches up without changing a lot.
-  //printf("max lag= %i \n",maxLag);
-  std::sort(lagList.begin(),lagList.end(), std::greater<int>());
-  
-  for(int epoch=0;epoch<numEpochs;epoch++)
-      {
-      for(int tp=maxLag;tp<epochPts;tp++)
-	{
-	  RHS.elements.insert(RHS.elements.end(),
-			      dataArray.epochArray[epoch].timePointArray[tp].dataVector.begin(),
-			      dataArray.epochArray[epoch].timePointArray[tp].dataVector.end());
-	}
-
-      for(int tp=0;tp<epochPts-maxLag;tp++)
-	{
-	  for(int lagIndx=0;lagIndx<lagList.size();lagIndx++)
-	    {
-	      tpoint = tp + maxLag-lagList[lagIndx];
-	      LHS.elements.insert(LHS.elements.end(),
-				  dataArray.epochArray[epoch].timePointArray[tpoint].dataVector.begin(),
-				  dataArray.epochArray[epoch].timePointArray[tpoint].dataVector.end());
-	    }
-	}
-
-      }
-
-  // Make some copies (probably some of them are unnecessary.
-  std::vector<float> LHSvec(LHS.elements);
-  std::vector<float> RHSvec(RHS.elements);
-  //std::vector<float> LHSvecBAK(LHS.elements);
-  //std::vector<float> RHSvecBAK(RHS.elements);
-
+  std::sort(lagList.begin(),lagList.end());
   int numLags = lagList.size();
-  
-  int mval = numLags*numComps;
-  int nval = numLags*numComps;
-  int kval = (epochPts-maxLag)*numEpochs;
 
-  const float alpha = 1.0f;
-  const float beta = 0.0f;
+  int epochAdj = epochPts-maxLag; // The lagged epochs are maxLag shorter.
+  std::vector<float> RHS(epochAdj*numEpochs*numComps,0.0);
+  std::vector<float> LHS(epochAdj*numEpochs*numComps*numLags,0.0);
 
-  float *LHSvec_DEVICE;
-  float *RHSvec_DEVICE;
-  float *LHScov_DEVICE;
-  float *RHScov_DEVICE;
+  for(int epoch=0;epoch<numEpochs;epoch++)
+    {
+      std::vector<float> epochData = dataArray.isoEpoch(epoch).dataArray();
+      std::copy(epochData.begin()+numComps*maxLag,epochData.end(),RHS.begin()+epoch*epochAdj*numComps);
+      for(int tp=maxLag;tp<epochPts;tp++)
+	for(int lagindx=0;lagindx<lagList.size();lagindx++)
+	  std::copy(epochData.begin()+(tp-lagList[lagindx])*numComps,
+		    epochData.begin()+(tp-lagList[lagindx]+1)*numComps,
+		    LHS.begin()+(epoch*epochAdj+tp-maxLag)*numComps*numLags+lagindx*numComps);
+    }
+  // Transpose these
+  std::vector<float> LHST(LHS.size());
+  for(int rowindx=0;rowindx<epochAdj*numEpochs;rowindx++)
+    for(int colindx=0;colindx<numComps*numLags;colindx++)
+      LHST[rowindx+colindx*epochAdj*numEpochs] = LHS[colindx+rowindx*numComps*numLags];
+  std::vector<float> RHST(RHS.size());
+  for(int rowindx=0;rowindx<epochAdj*numEpochs;rowindx++)
+    for(int colindx=0;colindx<numComps;colindx++)
+      RHST[rowindx+colindx*epochAdj*numEpochs] = RHS[colindx+rowindx*numComps];
 
-  cudaMalloc(&LHSvec_DEVICE,sizeof(float)*LHSvec.size());
-  cudaMalloc(&RHSvec_DEVICE,sizeof(float)*RHSvec.size());
-  cudaMemcpy(LHSvec_DEVICE,LHSvec.data(),sizeof(float)*LHSvec.size(),cudaMemcpyHostToDevice);
-  cudaMemcpy(RHSvec_DEVICE,RHSvec.data(),sizeof(float)*RHSvec.size(),cudaMemcpyHostToDevice);
-  
-  cudaMalloc(&LHScov_DEVICE,sizeof(float)*numComps*numComps*numLags*numLags);
-  cudaMalloc(&RHScov_DEVICE,sizeof(float)*numComps*numComps*numLags);
+  float *LHS_DEVICE = nullptr;
+  float *RHS_DEVICE = nullptr;
+  float *LHS_DEVICE_BACKUP = nullptr; // gesvd destroys the input, and we need it later.
 
   cublasHandle_t cublasH = 0;
   cublasCreate(&cublasH);
-
-  //cublasStatus_t errChk; // Put this in if there is a problem.
-  // This can be changed to a rank update function - make sure uplo is upper.
-
-  const cublasFillMode_t uplo = CUBLAS_FILL_MODE_UPPER;
-  cublasSgemm(cublasH,CUBLAS_OP_N,CUBLAS_OP_T,mval,nval,kval,
-	      &alpha,LHSvec_DEVICE,mval,LHSvec_DEVICE,mval,
-	      &beta,LHScov_DEVICE,mval);
-
-
-  // This one needs to stay the same.
-  cublasSgemm(cublasH,CUBLAS_OP_N,CUBLAS_OP_T,mval,numComps,kval,
-	      &alpha, LHSvec_DEVICE,mval, RHSvec_DEVICE,numComps,
-	      &beta, RHScov_DEVICE,mval);
-
-
+  
   cusolverDnHandle_t cusolverH = NULL;
   cusolverDnCreate(&cusolverH);
-    
-  int Lwork=0;
-  // This is already written to use a symmetric matrix, so the output from above
-  // Can be brought down directly. 
-  cusolverDnSpotrf_bufferSize(cusolverH, uplo, numComps, LHScov_DEVICE, numComps, &Lwork);
-	
-  float *Workspace;
-  cudaMalloc(&Workspace,sizeof(float)*Lwork);
-  int *devInfo;
-  cudaMalloc(&devInfo,sizeof(int));
-  // Need some error checking here.
-  cusolverDnSpotrf(cusolverH, uplo, mval, LHScov_DEVICE, mval, Workspace, Lwork, devInfo);
   
-  cusolverDnSpotrs(cusolverH, uplo, mval, numComps, LHScov_DEVICE, mval, RHScov_DEVICE, mval, devInfo);
+  if(cudaMalloc(&LHS_DEVICE,sizeof(float)*LHST.size()) != cudaSuccess)
+    {
+      std::cout << "GPU allocation failed - LHS_DEVICE" << std::endl;
+      exit(1);
+    }
+  if(cudaMalloc(&RHS_DEVICE,sizeof(float)*RHST.size()) != cudaSuccess)
+    {
+      std::cout << "GPU allocation failed - RHS_DEVICE" << std::endl;
+      exit(1);
+    } 
+  if(cudaMalloc(&LHS_DEVICE_BACKUP,sizeof(float)*LHST.size()) != cudaSuccess)
+    {
+      std::cout << "GPU allocation failed - LHS_DEVICE_BACKUP" << std::endl;
+      exit(1);
+    } 
+  if(cudaMemcpy(LHS_DEVICE,LHST.data(),sizeof(float)*LHST.size(),cudaMemcpyHostToDevice) != cudaSuccess)
+    {
+      std::cout << "Host->Device copy failed - LHS_DEVICE" << std::endl;
+      exit(1);
+    }  
+  if(cudaMemcpy(RHS_DEVICE,RHST.data(),sizeof(float)*RHST.size(),cudaMemcpyHostToDevice)  != cudaSuccess)
+    {
+      std::cout << "Host->Device copy failed - RHS_DEVICE" << std::endl;
+      exit(1);
+    } 
+  // Fill in the backup (I am guessing that this is faster than another cudaMemcpy. 
+  if(cublasScopy(cublasH,LHST.size(),LHS_DEVICE,1,LHS_DEVICE_BACKUP,1) != CUBLAS_STATUS_SUCCESS)
+    {
+      std::cout << "cublas copy failed - LHS_DEVICE->BACKUP" << std::endl;
+      exit(1);
+    } 
 
-  std::vector<float> A_result(numLags*numComps*numComps,0);
-  cudaMemcpy(A_result.data(),RHScov_DEVICE,sizeof(float)*numComps*numComps*numLags,cudaMemcpyDeviceToHost);
+  // Determine the size of the work array needed, and create it.
+  int Lwork=0;
+  if(cusolverDnSgesvd_bufferSize(cusolverH,numEpochs*epochAdj,numLags*numComps,&Lwork) != CUSOLVER_STATUS_SUCCESS)
+    {
+      std::cout << "cusolver SVD buffersize calculator failed in mkARGPU" << std::endl;
+      exit(1);
+    }
+  float *Workspace = nullptr;
+  if(cudaMalloc(&Workspace,sizeof(float)*Lwork) != cudaSuccess)
+    {
+      std::cout << "GPU allocation failed - Workspace" << std::endl;
+      exit(1);
+    } 
+  // Problem dimensions, to save typing.
+  int m = numEpochs*epochAdj;
+  int n = numLags*numComps;
 
+  float *d_rwork = nullptr; // This is an option. I really don't want to deal with it.
+  int *devInfo = nullptr;
+  if(cudaMalloc(&devInfo,sizeof(int)) != cudaSuccess)
+    {
+      std::cout << "Failed to allocate devInfo - size one" << std::endl;
+      exit(1);
+    }
+  //SVD matrices - returns V transposed.
+  float *U = nullptr;
+  float *S = nullptr;
+  float *VT = nullptr;
+
+  if(cudaMalloc(&U,sizeof(float)*m*n) != cudaSuccess)
+    {
+      std::cout << "GPU allocation failed - U" << std::endl;
+      exit(1);
+    }
+  if(cudaMalloc(&S,sizeof(float)*n) != cudaSuccess)
+    {
+      std::cout << "GPU allocation failed - S" << std::endl;
+      exit(1);
+    }
+  if(cudaMalloc(&VT,sizeof(float)*n*n) != cudaSuccess)
+    {
+      std::cout << "GPU allocation failed - VT" << std::endl;
+      exit(1);
+    }
+  // Compute the SVD
+  
+  if(cusolverDnSgesvd(cusolverH,'S','S',m,n,
+		      LHS_DEVICE,m,S,U,m,VT,n,
+		      Workspace,Lwork,d_rwork,devInfo) != CUSOLVER_STATUS_SUCCESS)
+    {
+      std::cout << "Computation of SVD in mkARGPU failed" << std::endl;
+      exit(1);
+    }
+  // Bounce out to the host.
+  // Doing this whole thing on the GPU instead of the CPU might be stupid.
+  std::vector<float> Shost(n);
+  if(cudaMemcpy(Shost.data(),S,sizeof(float)*n,cudaMemcpyDeviceToHost) != cudaSuccess)
+    {
+      std::cout << "Device->Host copy failed - S" << std::endl;
+      exit(1);
+    }
+
+  if(params.verbose)
+    std::cout << "Smallest Singular Value: " << Shost[n-1] << std::endl;
+
+  float tol;
+
+  float Ptol = params.Ptol;
+  float P = 0.0;
+  float singValSum = 0.0;
+  
+  if(Ptol < 1.0)
+    {
+      for(int indx=0;indx<n;indx++)
+	singValSum += Shost[indx];
+      for(int indx=0;indx<n;indx++)
+	{
+	  P += Shost[indx]/singValSum;
+	  if(P>Ptol)
+	    {
+	      tol = Shost[indx];
+	      break;
+	    }
+	}
+    }
+  else
+    tol = 0.0;
+
+  
+  if(params.verbose)
+    std::cout << "Tolerance is : " << tol << std::endl;
+  
+  float *UTb = nullptr;
+  if(cudaMalloc(&UTb,sizeof(float)*n*numComps) != cudaSuccess)
+    {
+      std::cout << "GPU allocate failed - UTb" << std::endl;
+      exit(1);
+    }
+  
+  const float alphaY = 1.0;
+  const float betaY = 0.0;
+  
+  if(cublasSgemm(cublasH,CUBLAS_OP_T,CUBLAS_OP_N,n,numComps,m,
+		 &alphaY,U,m,RHS_DEVICE,m,
+		 &betaY,UTb,n) != CUBLAS_STATUS_SUCCESS)
+    {
+      std::cout << "cublas sgemm failed" << std::endl;
+      exit(1);
+    }
+
+  int blksize = 1024;
+  int grdsize = (int)(m*n+blksize-1)/blksize;
+  const dim3 blockSize(blksize);
+  const dim3 gridSize(grdsize);
+
+  scaleByS<<<gridSize,blockSize>>>(S,UTb,n,numComps,tol);
+  if(cudaGetLastError() != cudaSuccess)
+    {
+      std::cout << "cuda kernel scaleBys failed" << std::endl;
+      exit(1);
+    }
+
+  float *Adev = nullptr;
+  if(cudaMalloc(&Adev,sizeof(float)*n*numComps) != cudaSuccess)
+    {
+      std::cout << "GPU allocation failed - Adev" << std::endl;
+      exit(1);
+    }
+  
+  if(cublasSgemm(cublasH,CUBLAS_OP_T,CUBLAS_OP_N,n,numComps,n,
+		 &alphaY,VT,n,UTb,n,
+		 &betaY,Adev,n) != CUBLAS_STATUS_SUCCESS)
+    {
+      std::cout << "cublas sgemm failed" << std::endl;
+      exit(1);
+    }
+  
   const float alphaRes = -1.0f;
   const float betaRes = 1.0f;
   
-  cublasSgemm(cublasH,CUBLAS_OP_T,CUBLAS_OP_N,numComps,kval,mval,
-	      &alphaRes, RHScov_DEVICE, mval, LHSvec_DEVICE, mval,
-	      &betaRes, RHSvec_DEVICE, numComps);
-
-  std::vector<float> residualsTmp(numComps*numEpochs*(epochPts-maxLag),0);
-
-  cudaMemcpy(residualsTmp.data(),RHSvec_DEVICE,sizeof(float)*numComps*numEpochs*(epochPts-maxLag),cudaMemcpyDeviceToHost);
-
-  
-  convertRawArrayToDataList(residualsTmp.data(),R,numComps,epochPts-maxLag, numEpochs); 
-
-  matrix lagTmp;
-
-  for(int lag=numLags-1;lag>=0;lag--)
+  if(cublasSgemm(cublasH,CUBLAS_OP_N,CUBLAS_OP_N,m,numComps,n,
+		 &alphaRes,LHS_DEVICE_BACKUP,m, Adev,n,
+		 &betaRes, RHS_DEVICE,m) != CUBLAS_STATUS_SUCCESS)
     {
-      for(int col=0;col<numComps;col++)
-	for(int row=0;row<numComps;row++)
-	  {
-	    // Transpose and copy.
-	    lagTmp.elements.push_back(A_result[row*numLags*numComps+col+lag*numComps]);
-	  }
-
-      A.lagMatrices.push_back(lagTmp);
-      lagTmp.elements.clear();
+      std::cout << "cublas sgemm failed" << std::endl;
+      exit(1);
+    }
+  // RHS_DEVICE now contains the residuals.
+  
+  std::vector<float> residualsTmp(m*numComps,0);
+  std::vector<float> Rout(m*numComps,0);
+  if(cudaMemcpy(residualsTmp.data(),RHS_DEVICE,sizeof(float)*numComps*m,cudaMemcpyDeviceToHost) != cudaSuccess)
+    {
+      std::cout << "Device->Host copy failed - residuals." << std::endl;
+      exit(1);
     }
 
+  for(int row=0;row<numComps;row++)
+    for(int col=0;col<m;col++)
+      Rout[col*numComps+row] = residualsTmp[row*m+col];
 
-  cudaFree(LHSvec_DEVICE);
-  cudaFree(RHSvec_DEVICE);
-  cudaFree(LHScov_DEVICE);
-  cudaFree(RHScov_DEVICE);
-  cudaFree(Workspace);
-  cudaFree(devInfo);
-  cublasDestroy(cublasH);
-  cusolverDnDestroy(cusolverH);
+  std::vector<float> Aout(numComps*numComps*numLags);
+  std::vector<float> Ahost(numLags*numComps*numComps,0);
+  if(cudaMemcpy(Ahost.data(),Adev,sizeof(float)*n*numComps,cudaMemcpyDeviceToHost) != cudaSuccess)
+    {
+      std::cout << "Device->Host copy failed - A." << std::endl;
+      exit(1);
+    }
+  for(int row=0;row<numComps;row++)
+    for(int col=0;col<numComps*numLags;col++)
+      Aout[col*numComps+row] = Ahost[row*numComps*numLags+col];
+ 
 
-  return;
+  MVAR<float> toReturn(Aout,Rout,numComps,lagList);
+
+
+  if(cudaFree(LHS_DEVICE) != cudaSuccess)
+    {
+      std::cout << "cudaFree failed - LHS_DEVICE" << std::endl;
+      exit(1);
+    }
+  
+  if(cudaFree(RHS_DEVICE) != cudaSuccess)
+   {
+      std::cout << "cudaFree failed - RHS_DEVICE" << std::endl;
+      exit(1);
+    }
+  if(cudaFree(LHS_DEVICE_BACKUP) != cudaSuccess)
+   {
+      std::cout << "cudaFree failed - LHS_DEVICE_BACKUP" << std::endl;
+      exit(1);
+    }
+  if(cudaFree(U) != cudaSuccess)
+   {
+      std::cout << "cudaFree failed - U" << std::endl;
+      exit(1);
+    }
+  if(cudaFree(S) != cudaSuccess)
+   {
+      std::cout << "cudaFree failed - S" << std::endl;
+      exit(1);
+    }
+  if(cudaFree(VT) != cudaSuccess)
+   {
+      std::cout << "cudaFree failed - VT" << std::endl;
+      exit(1);
+    }
+  if(cudaFree(UTb) != cudaSuccess)
+   {
+      std::cout << "cudaFree failed - UTb" << std::endl;
+      exit(1);
+    }
+  if(cudaFree(Adev) != cudaSuccess)
+   {
+      std::cout << "cudaFree failed - Adev" << std::endl;
+      exit(1);
+    }
+  if(cudaFree(Workspace) != cudaSuccess)
+    {
+      std::cout << "cudaFree failed - Workspace" << std::endl;
+      exit(1);
+    }
+  if(cudaFree(devInfo) != cudaSuccess)
+   {
+      std::cout << "cudaFree failed - devInfo" << std::endl;
+      exit(1);
+    }
+  if(cublasDestroy(cublasH) != CUBLAS_STATUS_SUCCESS)
+    {
+      std::cout << "cublasDestroy failed" << std::endl;
+      exit(1);
+    }
+  if(cusolverDnDestroy(cusolverH) != CUSOLVER_STATUS_SUCCESS)
+    {
+      std::cout << "cusolverDestroy failed" << std::endl;
+      exit(1);
+    }
+  
+  return toReturn;
 }
 
-void orthonormalizeR(dataList residuals, dataList &ortho_residuals, matrix &L)
-{
-  PCA(residuals, ortho_residuals, L);
-}
+//void orthonormalizeR(dataList residuals, dataList &ortho_residuals, matrix &L)
+//{
+//  PCA(residuals, ortho_residuals, L);
+//}
 
-void rotate_model(ARmodel &A, matrix L)
+MVAR<float> rotate_model(MVAR<float> model, std::vector<float> L)
 {
+  int numComps = model.numComps;
+  int numLags = model.lagList.size();
 
-  int M = sqrt(L.elements.size()); // Matrix dimension
-  int numLags = A.lagMatrices.size(); // number of lags
+  int N = model.R.size()/numComps;
+  if(L.size() != numComps*numComps)
+    {
+      std::cout << "When transforming the model to have orthonormal residuals, the transformation matrix is the wrong size" << std::endl;
+      exit(1);
+    }
+  
   int info1,info2; // Error checking
-  matrix LBAK; // The original will be changing, it is easiest to just make a copy. 
-  LBAK.elements = L.elements;
+  std::vector<float> LBAK(L);
 
   // Invert the matrix
   // Uses LAPACK to LU=A (trf) and back solve (tri)
-  std::vector<int> ipiv(M,0);
+  std::vector<int> ipiv(numComps,0);
   
-  info1 = LAPACKE_sgetrf(LAPACK_COL_MAJOR,M,M,L.elements.data(),M,ipiv.data());
-  info2 = LAPACKE_sgetri(LAPACK_COL_MAJOR,M,L.elements.data(),M,ipiv.data());
+  info1 = LAPACKE_sgetrf(LAPACK_COL_MAJOR,numComps,numComps,L.data(),numComps,ipiv.data());
+  info2 = LAPACKE_sgetri(LAPACK_COL_MAJOR,numComps,L.data(),numComps,ipiv.data());
   if(info1 != 0 || info2 != 0)
     {
-      // Put some diagnostics here - 
-
-      printf("Error inverting the residual transformation matrix \n");
-      exit(0);
+      std::cout << "When transforming the model to have orthonormal residuals, the transformation matrix did not invert" << std::endl;
+      exit(1);
     }
-  /*printf("The inverse \n");
-  for(int row=0;row<M;row++)
-    {
-      for(int col=0; col<M;col++)
-	{
-	  printf("%f ",L.elements[col*M+row]);
-
-	}
-      printf("\n");
-      }*/
   
   // Multiply L A L^-1 for each lag matrix in the AR model
   const float alpha=1.0f;
   const float beta=0.0f;
 
-  std::vector<float> tmp(M*M,0);
+  std::vector<float> Aout(model.A);
   for(int lag=0; lag<numLags; lag++)
     {
+      std::vector<float> lagMat = model.getLag(lag);
+      std::vector<float> tmp(numComps*numComps,0.0);
+      cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans,
+		  numComps,numComps,numComps,alpha,LBAK.data(),numComps,
+		  lagMat.data(),numComps,
+		  beta, tmp.data(),numComps);
       
       cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans,
-		  M,M,M,alpha,LBAK.elements.data(), M,
-		  A.lagMatrices[lag].elements.data(),M,
-		  beta, tmp.data(),M);
-      
-
-      cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans,
-		  M,M,M, alpha,tmp.data(),M,
-		  L.elements.data(),M,
-		  beta, A.lagMatrices[lag].elements.data(),M);
+		  numComps,numComps,numComps, alpha,tmp.data(),numComps,
+		  L.data(),numComps,
+		  beta,Aout.data()+lag*numComps*numComps,numComps);
     }
+  std::vector<float> Rout(model.R);
+  cblas_sgemm(CblasColMajor,CblasNoTrans,CblasNoTrans,
+	      numComps,N,numComps,
+	      alpha,LBAK.data(),numComps,model.R.data(),numComps,
+	      beta,Rout.data(),numComps);
   
-  
-  return;
+  MVAR<float> ARout(Aout,Rout,numComps,model.lagList);
+  return ARout;
 }
 	
