@@ -667,7 +667,7 @@ void computeBlocks(int &numBlocks,int &particleBlockSize,size_t memval,paramCont
   unsigned long int required=(unsigned long int)((unsigned long int)params.numParticles*
 						 (unsigned long int)(sizeof(float)*
 								     ((1+2*params.numLags)*numComps*numComps+ // Qdev and workArrays
-								      2*params.numFreqs+1+params.numFreqs*(numComps-1)+numComps-1)+ // determinants, GCval,eigenvalues, anglearray
+								      2*params.numFreqs+1+2*params.numFreqs*(numComps-1)+numComps-1)+ // determinants, GCval,eigenvalues, anglearray
 								     sizeof(float2)*
 								     (3*params.numFreqs*numComps*numComps+ // Tf, Swhole, tmp
 								      4*params.numFreqs*(numComps-1)*(numComps-1))+ // D_wholeSpec,Spartial,2x work array
