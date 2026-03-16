@@ -361,13 +361,7 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
   std::vector<float> Dmat = PCA(residuals);
   
   MVAR<float> rModel = rotate_model(model,Dmat);
-  /*for(int row=0;row<rModel.numComps;row++)
-    {
-      for(int col=0;col<rModel.A.size()/rModel.numComps;col++)
-  	std::cout << rModel.A[col*rModel.numComps+row] << " ";
-     std::cout << std::endl;
-     }*/
-  // Copy to the vector that is returned (passed by reference, for now).
+  L.resize(Dmat.size());
   std::copy(Dmat.begin(),Dmat.end(),L.begin());
 
   // This assumes that Dmat is the correct size - could it not be?
