@@ -103,6 +103,10 @@ void granger(std::vector<float> angleArray,
   int grdsize6 = (int)(params.numParticles*params.numFreqs+blksize-1)/blksize;
   const dim3 blockSizeProd(blksize);
   const dim3 gridSizeProd(grdsize6);
+
+  int grdNEW = (int)(params.numParticles+blksize-1)/blksize;
+  const dim3 grdBLOCKSIZE(blksize);
+  const dim3 grdGRIDSIZE(grdNEW);
   
   const int memsizeEig = sizeof(float)*blksize;
 
@@ -283,9 +287,12 @@ void granger(std::vector<float> angleArray,
       std::cout << "cuda kernel shrinkArrays failed" << std::endl;
       exit(1);
     }
+
+  // These each use the same dev_W, so it gets written twice.
+  
   // Cholesky algorithm to determine the eigenvalues (we set it not to compute eigenvectors, it can)
   if(cusolverDnCheevjBatched(cusolverH,jobz,uplo,numComps-1,workArray.d_wholeSpec,numComps-1,
-			     workArray.dev_W, workArray.d_work2,lwork,workArray.d_info,
+			     workArray.dev_W_whole, workArray.d_work2,lwork,workArray.d_info,
 			     syevj_params, params.numFreqs*params.numParticles) != CUSOLVER_STATUS_SUCCESS)
     {
       std::cout << "cheev failed" <<  std::endl;
@@ -293,10 +300,10 @@ void granger(std::vector<float> angleArray,
     }
 				     
   // Multiply the eigenvalues together to get the determinant. 
-  prodEigs<<<gridSizeProd,blockSizeProd,memsizeEig>>>(workArray.dev_W, workArray.det_whole, numComps-1, params.numParticles, params.numFreqs);
+  //prodEigs<<<gridSizeProd,blockSizeProd,memsizeEig>>>(workArray.dev_W, workArray.det_whole, numComps-1, params.numParticles, params.numFreqs);
   // Repeat for the partial spectral matrices. 
   if(cusolverDnCheevjBatched(cusolverH,jobz,uplo,numComps-1,workArray.Spartial,numComps-1,
-			     workArray.dev_W, workArray.d_work2,lwork,workArray.d_info,
+			     workArray.dev_W_partial, workArray.d_work2,lwork,workArray.d_info,
 			     syevj_params, params.numFreqs*params.numParticles) != CUSOLVER_STATUS_SUCCESS)
     {
       std::cout << "cheev failed" << std::endl;
@@ -304,19 +311,22 @@ void granger(std::vector<float> angleArray,
     }
   
   // Compute the determinant.
-  prodEigs<<<gridSizeProd,blockSizeProd,memsizeEig>>>(workArray.dev_W, workArray.det_partial, numComps-1, params.numParticles, params.numFreqs);      
+  //prodEigs<<<gridSizeProd,blockSizeProd,memsizeEig>>>(workArray.dev_W, workArray.det_partial, numComps-1, params.numParticles, params.numFreqs);
+
+  compGC<<<grdGRIDSIZE,grdBLOCKSIZE>>>(workArray.dev_GC,workArray.dev_W_partial,workArray.dev_W_whole,numComps-1,params.numParticles,params.numFreqs);
+  
   if(cudaGetLastError() != cudaSuccess)
     {
       std::cout << "cuda kernel prodEigs failed" << std::endl;
       exit(1);
     }
   // Divides the determinants, takes the log, and adds to the integral. 
-  det2GC<<<gridSize_det2GC,blockSize_det2GC>>>(workArray.det_partial, workArray.det_whole, workArray.dev_GC,params.numParticles,params.numFreqs);
-  if(cudaGetLastError() != cudaSuccess)
-    {
-      std::cout << "cuda kernel det2GC failed" << std::endl;
-      exit(1);
-    }
+  //det2GC<<<gridSize_det2GC,blockSize_det2GC>>>(workArray.det_partial, workArray.det_whole, workArray.dev_GC,params.numParticles,params.numFreqs);
+  //if(cudaGetLastError() != cudaSuccess)
+  //  {
+  //    std::cout << "cuda kernel det2GC failed" << std::endl;
+  //    exit(1);
+  //  }
   // Send the numParticles Granger causality values to the system memory.
   cudaMemcpy(GCvals.data(),workArray.dev_GC,sizeof(float)*params.numParticles,cudaMemcpyDeviceToHost);
   // Clean up (if you don't memory will leak).
@@ -339,6 +349,8 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
   srand((unsigned)time(0));
   // Create MVAR model for the data using the lags in params.
   MVAR<float> model = mkARGPU(dataArray,params);
+  
+
   // Some abbreviations
   int maxLag = *std::max_element(model.lagList.begin(),model.lagList.end());
   int epochAdj = dataArray.getEpochPoints() - maxLag;
@@ -347,7 +359,14 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
   // (which there is no need to compute). 
   dataClass<float> residuals(epochAdj,dataArray.getNumComps(),model.R,dataArray.getSampRate());
   std::vector<float> Dmat = PCA(residuals);
+  
   MVAR<float> rModel = rotate_model(model,Dmat);
+  /*for(int row=0;row<rModel.numComps;row++)
+    {
+      for(int col=0;col<rModel.A.size()/rModel.numComps;col++)
+  	std::cout << rModel.A[col*rModel.numComps+row] << " ";
+     std::cout << std::endl;
+     }*/
   // Copy to the vector that is returned (passed by reference, for now).
   std::copy(Dmat.begin(),Dmat.end(),L.begin());
 
@@ -453,23 +472,24 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
     {
       granger(angleArray[block],GCvals[block], paramsBLOCKED,numComps,workArray);
     }
+
+  //for(int indx=0;indx<angleArray[0].size();indx++)
+  //  std::cout << angleArray[0][indx] << std::endl;
   // Here is the iterator - adjustments occur here.
   // while STATIONARY_COUNT < COUNTMAX
 
-
   int STATIONARY_COUNT = 0;
   const int COUNTMAX = params.STUCKCOUNT;
-
-  
   
   //for(int iter=0;iter<numIts;iter++)
   int iter = 0;
   while(STATIONARY_COUNT < COUNTMAX)
     {
       // Get a bunch of gradients
+      //std::cout << " Heading in" << std::endl;
       for(int block=0;block<numBlocks;block++)
 	compGradient(gradient[block],GCvals[block],angleArray[block],paramsBLOCKED,numComps,workArray);
-
+      //std::cout << "Made it out" << std::endl;
       // Assign values to the angles accordning to the gradient.
       for(int block=0;block<numBlocks;block++)
 	{

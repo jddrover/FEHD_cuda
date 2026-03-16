@@ -46,7 +46,8 @@ void runFEHD(dataClass<float> dataArray, std::vector<float> &Lmat, paramContaine
       // Transform the data      
 
       dataClass<float> Ldata = linearTrans(dataiter,T);
-      Ldata.removeComponent(numComps-1);
+      std::vector<int> compsToRemove = {numComps-1};
+      Ldata.removeComponents(compsToRemove);
 
       dataiter = Ldata;
       

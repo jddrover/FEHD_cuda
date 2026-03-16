@@ -18,8 +18,10 @@ __global__ void compTransferFunc(float *,float2 *,int *,int,int,float,float,int,
 __global__ void scale_columns(float2 *, int, int, int);
 // Squeezes an matrix to one size down.
 __global__ void shrinkArrays(float2 *, float2 *, int,int,int);
+__global__ void compGC(float *,float *,float *,int,int,int);
 // Multiply the eigenvalues together to get the determinant.
-__global__ void prodEigs(float *, float *, int,int,int);
+
+//__global__ void prodEigs(float *, float *, int,int,int);
 // Compute sum(log(det(S)/det(Sp))
-__global__ void det2GC(float *,float *,float *,int, int);
+//__global__ void det2GC(float *,float *,float *,int, int);
 #endif

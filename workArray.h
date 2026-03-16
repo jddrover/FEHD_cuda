@@ -14,7 +14,8 @@ struct workForGranger
   float2 *tmp;
   float2 *Spartial; // Make partial one size down
   float2 *d_wholeSpec;
-  float *dev_W;
+  float *dev_W_partial;
+  float *dev_W_whole;
   int *d_info;
   float2 *d_work2;
   float *det_whole;

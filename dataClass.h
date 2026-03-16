@@ -5,6 +5,7 @@
 #include <iostream>
 #include <cmath>
 #include <string>
+#include <algorithm>
 
 
 template<typename T>
@@ -12,7 +13,7 @@ struct MVAR {
   std::vector<T> A;
   std::vector<T> R;
 
-  float numComps;
+  int numComps;
   std::vector<int> lagList;
   
   MVAR(std::vector<T> Ain,std::vector<T> Rin,int numCompsin,std::vector<int> lagListin)
@@ -56,7 +57,7 @@ public:
   void removeEpoch(int);
   void addEpoch(std::vector<T>,int = 0);
   void addEpoch(dataClass<T>,int = 0);
-  void removeComponent(int);
+  void removeComponents(std::vector<int>);
   void keepComponents(std::vector<int>);
   void addComponent(std::vector<T>);
   void setSampRate(int);
@@ -176,32 +177,59 @@ void dataClass<T>::removeEpoch(int epochNum)
 // Removes a single component.
 // Zero indexing applies.
 template<class T>
-void dataClass<T>::removeComponent(int compNum)
+void dataClass<T>::removeComponents(std::vector<int> compsToRemove)
 {
-  if(compNum >= getNumComps())
+  // Sort the list of components to remove.
+  std::sort(compsToRemove.begin(),compsToRemove.end());
+  // Remove any duplicates
+  std::vector<int>::iterator it;
+  it = std::unique(compsToRemove.begin(),compsToRemove.end());
+  compsToRemove.resize(std::distance(compsToRemove.begin(),it));
+  
+  int numCompsToRemove = compsToRemove.size();
+  if(compsToRemove.back() >= numComps)
     {
-      std::cout << "Component out of bounds" << std::endl;
+      std::cout << "Requested removal of a non-existant component (out of bounds)" << std::endl;
       exit(1);
     }
+  if(compsToRemove.front() < 0)
+    {
+      std::cout << "Requested removal of a negative index" << std::endl;
+      exit(1);
+    }
+
   else
     {
-      for(int tp=N-1;tp>=0;tp--)// On really big sets this will not be fast.
-	dataVector.erase(dataVector.begin()+compNum+tp*numComps);
-      numComps = numComps - 1;
+      std::vector<int> allComps;
+      for(int indx=0;indx<numComps;indx++)
+	allComps.push_back(indx);
+      std::vector<int> compsToKeep(numComps);
+      it = std::set_difference(allComps.begin(),allComps.end(),
+			       compsToRemove.begin(),compsToRemove.end(),
+			       compsToKeep.begin());
+      compsToKeep.resize(it-compsToKeep.begin());
+      keepComponents(compsToKeep);
     }
+
   return;
 }
 
 template<class T>
 void dataClass<T>::keepComponents(std::vector<int> compList)
 {
+  std::sort(compList.begin(),compList.end());
+  std::vector<int>::iterator it = std::unique(compList.begin(),compList.end());
+  compList.resize(it-compList.begin());
+
   int numToKeep = compList.size();
+  
   std::vector<T> rArray(numToKeep*N);
   if(numToKeep > numComps)
     {
       std::cout << "Component list is too long." << std::endl;
       exit(1);
     }
+
   for(int comp : compList)
     {
       if(comp>=numComps)

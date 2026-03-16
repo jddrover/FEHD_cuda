@@ -2,7 +2,7 @@
 #define FEHD_H
 //#include "dataContainers.h"
 #include "utility.h"
-#include <dataClass.h>
+#include "dataClass.h"
 // Computes the gradient for multiple rotations of an AR model.
 //void compGradient(ARmodel, std::vector<float> &, std::vector<float>,std::vector<float>,paramContainer,int,std::vector<int>);
 // The main call of the FEHD routine

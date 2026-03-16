@@ -325,7 +325,7 @@ MVAR<float> mkARGPU(dataClass<float> dataArray,paramContainer params)
       std::cout << "cusolverDestroy failed" << std::endl;
       exit(1);
     }
-
+  
   return toReturn;
 }
 
