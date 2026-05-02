@@ -428,7 +428,8 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
   for(int block=0;block<numBlocks;block++)
     {
       for(int indx=0;indx<particleBlockSize*(numComps-1);indx++)
-	tmpAngle.push_back((float)(rand()%314-157)/100.0f);
+	tmpAngle.push_back((float)(rand()%628)/100.0f);
+	//tmpAngle.push_back((float)(rand()%314-157)/100.0f); // This is probably limiting
   
       angleArray.push_back(tmpAngle);
       angleArray1.push_back(tmpAngle);
@@ -530,7 +531,8 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
 		    GCvalsReset.push_back(0.0); // This just adjusts the size, used below.
 		    for(int comp=0;comp<numComps-1;comp++) // Reset the angle array, and make a copy for the reset run.
 		      {		
-			angleArray[block][particle*(numComps-1)+comp] = (float)(rand()%314-157)/100.0f;
+			angleArray[block][particle*(numComps-1)+comp] = (float)(rand()%628)/100.0f;
+			//angleArray[block][particle*(numComps-1)+comp] = (float)(rand()%314-157)/100.0f;
 			angleArrayReset.push_back(angleArray[block][particle*(numComps-1)+comp]);
 		      }
 		  }
@@ -593,12 +595,11 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
 
   std::copy(angleArray[minBlockNumber].data()+indexVal*(numComps-1),angleArray[minBlockNumber].data()+indexVal*(numComps-1)+numComps-1,bestAngle.begin());
 
-
   freeWorkArray(workArray);
   
-  return;
- 
+  return; 
 }
+
 void compGradient(std::vector<float> &gradient ,std::vector<float> GCvalsBASE,std::vector<float> angleArray,paramContainer params, int numComps,
 		  workForGranger workArray)
 {
