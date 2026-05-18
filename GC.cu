@@ -18,8 +18,6 @@
 #include "dataClass.h"
 #include "dataCompute.h"
 
-
-
 void granger(std::vector<float> angleArray,
 	     std::vector<float> &GCvals, paramContainer params,
 	     int numComps,workForGranger workArray)
@@ -44,8 +42,6 @@ void granger(std::vector<float> angleArray,
   betaC2.y=0.0f;
   
   int lwork = workArray.lworkVal;
-
-  
   
   // cublas handle. Contains info about the system that routines need.
   cublasHandle_t cublasH = 0;
@@ -108,7 +104,7 @@ void granger(std::vector<float> angleArray,
   const dim3 grdBLOCKSIZE(blksize);
   const dim3 grdGRIDSIZE(grdNEW);
   
-  const int memsizeEig = sizeof(float)*blksize;
+  //  const int memsizeEig = sizeof(float)*blksize;
 
 
   int grdsize7 = (int)(params.numParticles+blksize-1)/blksize;
@@ -320,14 +316,8 @@ void granger(std::vector<float> angleArray,
       std::cout << "cuda kernel prodEigs failed" << std::endl;
       exit(1);
     }
-  // Divides the determinants, takes the log, and adds to the integral. 
-  //det2GC<<<gridSize_det2GC,blockSize_det2GC>>>(workArray.det_partial, workArray.det_whole, workArray.dev_GC,params.numParticles,params.numFreqs);
-  //if(cudaGetLastError() != cudaSuccess)
-  //  {
-  //    std::cout << "cuda kernel det2GC failed" << std::endl;
-  //    exit(1);
-  //  }
   // Send the numParticles Granger causality values to the system memory.
+  // There is a built in sync, unlike in cudaMemcpyasync. I have things to learn in this area. 
   cudaMemcpy(GCvals.data(),workArray.dev_GC,sizeof(float)*params.numParticles,cudaMemcpyDeviceToHost);
   // Clean up (if you don't memory will leak).
   cusolverDnDestroy(cusolverH);
@@ -428,7 +418,7 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
   for(int block=0;block<numBlocks;block++)
     {
       for(int indx=0;indx<particleBlockSize*(numComps-1);indx++)
-	tmpAngle.push_back((float)(rand()%628)/100.0f);
+	tmpAngle.push_back((float)(rand()%628)/100.0f);      
 	//tmpAngle.push_back((float)(rand()%314-157)/100.0f); // This is probably limiting
   
       angleArray.push_back(tmpAngle);
@@ -486,6 +476,7 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
 	compGradient(gradient[block],GCvals[block],angleArray[block],paramsBLOCKED,numComps,workArray);
       //std::cout << "Made it out" << std::endl;
       // Assign values to the angles accordning to the gradient.
+      // These declarations should be moved inside the loop.
       for(int block=0;block<numBlocks;block++)
 	{
 	  angleArray1[block]=angleArray[block];
