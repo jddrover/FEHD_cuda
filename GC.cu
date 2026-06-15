@@ -17,6 +17,8 @@
 #include "workArray.h"
 #include "dataClass.h"
 #include "dataCompute.h"
+#include <numeric>
+#include "../minimizer/minimizer.h"
 
 void granger(std::vector<float> angleArray,
 	     std::vector<float> &GCvals, paramContainer params,
@@ -358,25 +360,7 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
   // If Dmat is too small, this is the breaking point for filtered data.
 
   
-  // The step-sizes to check along the (-)gradient.
-  std::vector<float> h = {0.001f, 0.01f, 0.1f};
 
-  // This stuff is all used below and should be put below.
-  // A lot of it should be in for loop scope only. 
-  std::vector<float> candidates(4,0);
-  int minIndx;
-  float allBlockMin=10000.0; // Just needs a somewhat large value. Will be set below.
-
-  int minBlockNumber;
-  // For recycling
-  unsigned long int minimumGC;
-  unsigned long int allBlockParticle;
-  std::vector<int> resetList;
-  std::vector<float> angleArrayReset;
-
-  std::vector<float> GCvalsReset;
-
-  paramContainer paramsReset = params;
 
   // Determine how to break up the analysis so that it fits on the GPU.
   // Query the GPU for memory situation
@@ -400,8 +384,6 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
       printf("Block size = %i \n",particleBlockSize);
     }
 
-  std::vector<float> GCmin(numBlocks,0);
-  std::vector<int> GCminIndex(numBlocks,0);
 
   // Allocate all of the arrays need for the GC function. 
   workForGranger workArray;
@@ -409,9 +391,6 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
    
   // Angle arrays.
   std::vector<std::vector<float>> angleArray;
-  std::vector<std::vector<float>> angleArray1;
-  std::vector<std::vector<float>> angleArray2;
-  std::vector<std::vector<float>> angleArray3;
 
   std::vector<float> tmpAngle;
   
@@ -419,12 +398,8 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
     {
       for(int indx=0;indx<particleBlockSize*(numComps-1);indx++)
 	tmpAngle.push_back((float)(rand()%628)/100.0f);      
-	//tmpAngle.push_back((float)(rand()%314-157)/100.0f); // This is probably limiting
   
       angleArray.push_back(tmpAngle);
-      angleArray1.push_back(tmpAngle);
-      angleArray2.push_back(tmpAngle);
-      angleArray3.push_back(tmpAngle);
 			    
       tmpAngle.clear();
     }
@@ -432,152 +407,79 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
   // GCvals arrays - these store the Granger causality and
   // are the value we wish to minimize.
   std::vector<std::vector<float>> GCvals;
-  std::vector<std::vector<float>> GCvals1;
-  std::vector<std::vector<float>> GCvals2;
-  std::vector<std::vector<float>> GCvals3;
   
   std::vector<float> GCtmp(particleBlockSize,0);
   
   for(int block=0;block<numBlocks;block++)
     {
       GCvals.push_back(GCtmp);
-      GCvals1.push_back(GCtmp);
-      GCvals2.push_back(GCtmp);
-      GCvals3.push_back(GCtmp);
     }
 
   // gradient arrays for each block.
-  std::vector<std::vector<float>> gradient;
-  std::vector<float> gradientTmp(particleBlockSize*(numComps-1),0);
-
-  for(int block=0;block<numBlocks;block++)
-    gradient.push_back(gradientTmp);
-      
-  for(int block=0;block<numBlocks;block++)
-    {
-      granger(angleArray[block],GCvals[block], paramsBLOCKED,numComps,workArray);
-    }
-
-  //for(int indx=0;indx<angleArray[0].size();indx++)
-  //  std::cout << angleArray[0][indx] << std::endl;
-  // Here is the iterator - adjustments occur here.
-  // while STATIONARY_COUNT < COUNTMAX
 
   int STATIONARY_COUNT = 0;
   const int COUNTMAX = params.STUCKCOUNT;
   
   //for(int iter=0;iter<numIts;iter++)
-  int iter = 0;
+
+  int numPlanets = 5; // THIS WILL BE A USER PASSABLE PARAMETER
   while(STATIONARY_COUNT < COUNTMAX)
     {
-      // Get a bunch of gradients
-      //std::cout << " Heading in" << std::endl;
-      for(int block=0;block<numBlocks;block++)
-	compGradient(gradient[block],GCvals[block],angleArray[block],paramsBLOCKED,numComps,workArray);
-      //std::cout << "Made it out" << std::endl;
-      // Assign values to the angles accordning to the gradient.
-      // These declarations should be moved inside the loop.
-      for(int block=0;block<numBlocks;block++)
-	{
-	  angleArray1[block]=angleArray[block];
-	  angleArray2[block]=angleArray[block];
-	  angleArray3[block]=angleArray[block];
-	  cblas_saxpy(particleBlockSize*(numComps-1), -h[0], gradient[block].data(), 1, angleArray1[block].data(),1);
-	  cblas_saxpy(particleBlockSize*(numComps-1), -h[1], gradient[block].data(), 1, angleArray2[block].data(),1);
-	  cblas_saxpy(particleBlockSize*(numComps-1), -h[2], gradient[block].data(), 1, angleArray3[block].data(),1);
-	}
-
-      // Evaluate the minimization candidates.
-      for(int block=0;block<numBlocks;block++)
-	{
-	  granger(angleArray1[block],GCvals1[block],paramsBLOCKED,numComps,workArray);
-	  granger(angleArray2[block],GCvals2[block],paramsBLOCKED,numComps,workArray);
-	  granger(angleArray3[block],GCvals3[block],paramsBLOCKED,numComps,workArray);
-	}
-
       
-      // Determine the minimum value its location for each of the blocks
-      // Recycle the particles that are local minima.
+      // angleArray is broken into blocks. Since we're only doing one evaluation, it is ready.
       for(int block=0;block<numBlocks;block++)
-	{
-	  minimumGC = std::distance(GCvals[block].begin(),std::min_element(GCvals[block].begin(),GCvals[block].end()));
+	granger(angleArray[block],GCvals[block],paramsBLOCKED,numComps,workArray);
 
-	  resetList.clear();
-	  GCvalsReset.clear();
-	  angleArrayReset.clear();
-	  
-	  for(int particle=0;particle<particleBlockSize;particle++)
-	    {	  	  	  
-	      candidates[0] = GCvals[block][particle];
-	      candidates[1] = GCvals1[block][particle];
-	      candidates[2] = GCvals2[block][particle];
-	      candidates[3] = GCvals3[block][particle];
-	      
-	      minIndx = std::distance(candidates.begin(),min_element(candidates.begin(),candidates.end()));
+      // Describe the planets.
+      // Determine the numPlanets least values
+      std::vector<float> GCall(numBlocks*particleBlockSize);
+      for(int block=0;block<numBlocks;block++)
+	std::copy(GCvals[block].begin(),GCvals[block].end(),GCall.begin()+block*particleBlockSize);
 
-	      if(minIndx == 0) // Recycle these
-		if(minimumGC != particle)
-		  {
-		    resetList.push_back(particle); // Store the particle numbers to be reset.
-		    GCvalsReset.push_back(0.0); // This just adjusts the size, used below.
-		    for(int comp=0;comp<numComps-1;comp++) // Reset the angle array, and make a copy for the reset run.
-		      {		
-			angleArray[block][particle*(numComps-1)+comp] = (float)(rand()%628)/100.0f;
-			//angleArray[block][particle*(numComps-1)+comp] = (float)(rand()%314-157)/100.0f;
-			angleArrayReset.push_back(angleArray[block][particle*(numComps-1)+comp]);
-		      }
-		  }
-	      
-	      if(minIndx == 1)
-		{
-		  GCvals[block][particle] = GCvals1[block][particle];
-		  std::copy(angleArray1[block].data()+particle*(numComps-1),angleArray1[block].data()+particle*(numComps-1)+numComps-1,
-			    angleArray[block].data()+particle*(numComps-1));
-		}
-	      if(minIndx == 2)
-		{
-		  GCvals[block][particle] = GCvals2[block][particle];
-		  std::copy(angleArray2[block].data()+particle*(numComps-1),angleArray2[block].data()+particle*(numComps-1)+numComps-1,
-			    angleArray[block].data()+particle*(numComps-1));
-		}
-	      if(minIndx == 3)
-		{
-		  GCvals[block][particle] = GCvals3[block][particle];
-		  std::copy(angleArray3[block].data()+particle*(numComps-1),angleArray3[block].data()+particle*(numComps-1)+numComps-1,
-			    angleArray[block].data()+particle*(numComps-1));
-		}
-	    }
-	  
-	  GCminIndex[block]=std::min_element(GCvals[block].begin(),GCvals[block].end())-GCvals[block].begin();
-	  GCmin[block]=GCvals[block][GCminIndex[block]];
-	  
-	  paramsReset.numParticles = GCvalsReset.size();
-	  
-	  if(paramsReset.numParticles>=1)
-	    {
-	      granger(angleArrayReset,GCvalsReset,paramsReset,numComps,workArray);
-
-	      for(int resetParticle=0;resetParticle<paramsReset.numParticles;resetParticle++)
-		GCvals[block][resetList[resetParticle]]=GCvalsReset[resetParticle];
-	    }
-	}
-
-      // Find the minimum over all of the blocks
-      minBlockNumber = std::min_element(GCmin.begin(),GCmin.end())-GCmin.begin();
-      if(allBlockMin <= GCmin[minBlockNumber])
-	STATIONARY_COUNT++;
-      else
-	STATIONARY_COUNT = 0;
+      std::vector<int> indices(GCall.size());
+      std::iota(indices.begin(),indices.end(),0);
       
-      allBlockMin = GCmin[minBlockNumber];
-      allBlockParticle = minBlockNumber*particleBlockSize+GCminIndex[minBlockNumber];
-            
-      if(params.verbose)
-      	printf("iteration = %i, particle = %li, value = %e, exit count = %i \n",
-	       iter,allBlockParticle,allBlockMin,STATIONARY_COUNT);
-      iter++;
+      std::nth_element(indices.begin(), indices.begin() + numPlanets, indices.end(),
+		       [&](int i,int j) {return GCall[i] < GCall[j];});
+
+      // Get the corresponding angles
+      std::vector<std::vector<float>> planetaryAngles;
+      std::vector<float> planetaryOld(numPlanets);
+      std::vector<float> planetaryValues(numPlanets);
+      for(int indx=0;indx<numPlanets;indx++)
+	{
+	  int indxVal = indices[indx];
+	  int blockVal = int(indxVal/particleBlockSize);
+	  indxVal = indxVal-blockVal*particleBlockSize;
+	  planetaryValues[indx] = GCvals[blockVal][indxVal];
+	  std::vector<float> tmpAngle(numComps-1);
+	  std::copy(angleArray[blockVal].begin()+indxVal*(numComps-1),
+		    angleArray[blockVal].begin()+(indxVal+1)*(numComps-1),
+		    tmpAngle.begin());
+	  planetaryAngles.push_back(tmpAngle);
+	}
+      std::vector<float> masses(numPlanets,1.0);
+      minimizer GCsmall(numPlanets,numComps-1);
+      GCsmall.assignPlanets(masses,planetaryAngles);
+      std::vector<std::vector<float>> newAngleArray(numBlocks);
+      for(int blockVal=0;blockVal<numBlocks;blockVal++)
+	for(int partVal=0;partVal<particleBlockSize;partVal++)
+	  {
+	    std::vector<float> tmpAngle(numComps-1);
+	    std::copy(angleArray[blockVal].begin()+partVal*(numComps-1),
+		      angleArray[blockVal].begin()+(partVal+1)*(numComps-1),
+		      tmpAngle.begin());
+	    
+	    tmpAngle = GCsmall.advanceInTime(tmpAngle);
+	    //std::cout << tmpAngle.size() << std::endl;
+	    newAngleArray[blockVal].insert(newAngleArray[blockVal].end(),tmpAngle.begin(),tmpAngle.end());
+	  }
+      angleArray = newAngleArray;
+      for(int indx=0;indx<numPlanets;indx++)
+	std::cout << planetaryValues[indx] << " ";
+      std::cout << std::endl;
     }
-  
+  /*
   // Return the best angle.
 
   long unsigned int indexVal = GCminIndex[minBlockNumber];
@@ -587,7 +489,8 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
   std::copy(angleArray[minBlockNumber].data()+indexVal*(numComps-1),angleArray[minBlockNumber].data()+indexVal*(numComps-1)+numComps-1,bestAngle.begin());
 
   freeWorkArray(workArray);
-  
+  */
+  exit(0);
   return; 
 }
 
