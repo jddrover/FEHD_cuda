@@ -19,6 +19,7 @@
 #include "dataCompute.h"
 #include <numeric>
 #include "../minimizer/minimizer.h"
+#include <random>
 
 void granger(std::vector<float> angleArray,
 	     std::vector<float> &GCvals, paramContainer params,
@@ -422,7 +423,7 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
   
   //for(int iter=0;iter<numIts;iter++)
 
-  int numPlanets = 5; // THIS WILL BE A USER PASSABLE PARAMETER
+  int numPlanets = 10; // THIS WILL BE A USER PASSABLE PARAMETER
   std::vector<float> planetValOLD(numPlanets,100.0);
   std::vector<std::vector<float>> planetaryAngles;
 
@@ -437,7 +438,10 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
 
 
   std::cout << "ps " << planetaryAngles.size() << std::endl;
-  
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  float varnce = 0.05;
+  std::normal_distribution<float> dist(0.0,varnce);
   while(STATIONARY_COUNT < COUNTMAX)
     {
       
@@ -493,10 +497,32 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
 	      planetaryAngles[min_indx] = angle;
 	      GCsmall.assignPlanets(masses,planetaryAngles);
 	    }
-	  exit(1);
+	  GCsmall.assignPlanets(masses,planetaryAngles);
+	  
 	}
-
+      for(int blockNum=0;blockNum<numBlocks;blockNum++)	
+	for(int p=0;p<particleBlockSize;p++)
+	  {
+	    std::vector<float> tmpVec(numComps-1);
+	    std::copy(angleArray[blockNum].begin()+p*(numComps-1),
+		      angleArray[blockNum].begin()+(p+1)*(numComps-1),
+		      tmpVec.begin());
+	    tmpVec = GCsmall.advanceInTime(tmpVec);
+	    // Add a little noise to tmpVec
+	    for(int angle=0;angle<numComps-1;angle++)
+	      tmpVec[angle] = tmpVec[angle] + dist(gen);
+		
+	    std::copy(tmpVec.begin(),tmpVec.end(),
+		      angleArray[blockNum].begin()+p*(numComps-1));
+	    
+	  }
+      // Add a little noise to ALL of the angles.
+      // To start, normally distributed, mean zero.
+      // Variance might be a big choice.
+      
       //      GCsmall.assignPlanets(masses,planetaryAngles);
+
+      
       
       for(int indx=0;indx<numPlanets;indx++)
 	std::cout << planetValOLD[indx] << " ";
