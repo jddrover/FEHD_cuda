@@ -424,7 +424,20 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
 
   int numPlanets = 5; // THIS WILL BE A USER PASSABLE PARAMETER
   std::vector<float> planetValOLD(numPlanets,100.0);
-  std::vector<std::vector<float>> planetaryAngles(numPlanets);
+  std::vector<std::vector<float>> planetaryAngles;
+
+  for(int pindx=0;pindx<numPlanets;pindx++)
+    {
+      std::vector<float> tmpVec(numComps-1,0.0);
+      planetaryAngles.push_back(tmpVec);
+    }
+  minimizer GCsmall(numPlanets,numComps-1);
+  std::vector<float> masses(numPlanets,1.0);
+  GCsmall.assignPlanets(masses,planetaryAngles);
+
+
+  std::cout << "ps " << planetaryAngles.size() << std::endl;
+  
   while(STATIONARY_COUNT < COUNTMAX)
     {
       
@@ -432,8 +445,7 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
       for(int block=0;block<numBlocks;block++)
 	granger(angleArray[block],GCvals[block],paramsBLOCKED,numComps,workArray);
 
-      // Describe the planets.
-      // Determine the numPlanets least values
+      // Combine all of the GCs to reduce the writing of code. 
       std::vector<float> GCall(numBlocks*particleBlockSize);
       for(int block=0;block<numBlocks;block++)
 	std::copy(GCvals[block].begin(),GCvals[block].end(),GCall.begin()+block*particleBlockSize);
@@ -441,59 +453,55 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
       std::vector<int> indices(GCall.size());
       std::iota(indices.begin(),indices.end(),0);
       
-      std::nth_element(indices.begin(), indices.begin() + numPlanets, indices.end(),
-		       [&](int i,int j) {return GCall[i] < GCall[j];});
+      //std::nth_element(indices.begin(), indices.begin() + numPlanets, indices.end(),
+      //	       [&](int i,int j) {return GCall[i] < GCall[j];});
 
-      // Get the corresponding angles
-      std::vector<float> planetaryValues(numPlanets);
-      //std::vector<std::vector<float>> planetaryAngles(numPlanets);
-      for(int indx=0;indx<numPlanets;indx++)
-	planetaryValues[indx] = GCall[indices[indx]];
-      for(int indx=0;indx<numPlanets;indx++)
+      std::sort(indices.begin(),indices.end(),[&](int i,int j) {return GCall[i] < GCall[j];});
+
+      for(int indx=0;indx<GCall.size();indx++)
 	{
-	  // locate the maximum of the previous results
-	  int max_planet = std::max_element(planetValOLD.begin(),planetValOLD.end())-planetValOLD.begin();
-	  if(planetaryValues[indx] < planetValOLD[max_planet])
+	  std::vector<int> eligible_for_change;
+	  for(int pindx=0;pindx<numPlanets;pindx++)
+	    if(GCall[indices[indx]] < planetValOLD[pindx])
+	      {
+		//std::cout << "ae" << std::endl;
+		eligible_for_change.push_back(pindx);
+	      }
+	  if(eligible_for_change.size() == 0)
+	    break;
+	  // std::cout << "moo" << std::endl;
+	  // Find the angle
+	  int blockNum = int(indices[indx]/particleBlockSize);
+	  int indxa = indices[indx]-blockNum*particleBlockSize;
+	  std::vector<float> angle(numComps-1);
+	  std::copy(angleArray[blockNum].begin()+indxa*(numComps-1),
+	  	    angleArray[blockNum].begin()+(indxa+1)*(numComps-1),
+	  	    angle.begin());
+	  // Get the distance from all of the planets
+	  // There are no planets, the first time around. 
+	  std::vector<float> dist = GCsmall.distance(angle);
+	  //std::cout << dist[0] << " " << dist[1] <<  std::endl;
+	  auto min_indx = std::min_element(dist.begin(),dist.end())-dist.begin();
+	  //std::cout << min_indx << std::endl;
+	  auto it = std::find(eligible_for_change.begin(),eligible_for_change.end(),min_indx);
+	  if(it != eligible_for_change.end())
 	    {
-	      planetValOLD[max_planet] = planetaryValues[indx];
-	      std::vector<float> tmpAngle(numComps-1);
-	      int blockVal = int(indices[indx]/particleBlockSize);
-	      int indxVal = indices[indx]-blockVal*particleBlockSize;		
-	      std::copy(angleArray[blockVal].begin()+indxVal*(numComps-1),
-	  		angleArray[blockVal].begin()+(indxVal+1)*(numComps-1),
-	  		tmpAngle.begin());
-	      planetaryAngles[max_planet] = tmpAngle;	  
+	      //std::cout << "moo" << std::endl;
+	      planetValOLD[min_indx] = GCall[indices[indx]];
+	      //std::cout << planetaryAngles.size() << std::endl;
+	      
+	      planetaryAngles[min_indx] = angle;
+	      GCsmall.assignPlanets(masses,planetaryAngles);
 	    }
+	  exit(1);
 	}
-      minimizer GCsmall(numPlanets,numComps-1);
-      std::vector<float> masses(numPlanets,1.0);
-      //std::cout << planetaryAngles.size() << std::endl;
 
-      //for(int p=0;p<numPlanets;p++)
-      //	{
-      //  std::cout << planetaryAngles[p].size() << std::endl;
-      //}
+      //      GCsmall.assignPlanets(masses,planetaryAngles);
       
-      GCsmall.assignPlanets(masses,planetaryAngles);
-
-      for(int block=0;block<numBlocks;block++)
-      	for(int part=0;part<particleBlockSize;part++)
-	  {
-	    std::vector<float> tmpCoord(numComps-1);
-	    std::copy(angleArray[block].begin()+part*(numComps-1),
-          	      angleArray[block].begin()+(part+1)*(numComps-1),
-          	      tmpCoord.begin());
-	    tmpCoord = GCsmall.advanceInTime(tmpCoord);
-	    //std::cout << tmpCoord.size() << std::endl;
-	    std::copy(tmpCoord.begin(),tmpCoord.end(),angleArray[block].begin()+part*(numComps-1));
-	  }
-		      
       for(int indx=0;indx<numPlanets;indx++)
 	std::cout << planetValOLD[indx] << " ";
       std::cout << std::endl;
-
-      
-
+	  
     }
       
      
