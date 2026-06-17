@@ -468,7 +468,7 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
   // MINIMIZATION LOOP
   // ---------------------
   int iter=0;
-  int COUNTMAX = 500;
+  int COUNTMAX = 250;
   STATIONARY_COUNT = 0;
   while(STATIONARY_COUNT < COUNTMAX)
     {
@@ -551,9 +551,9 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
 
       
       
-      for(int indx=0;indx<numPlanets;indx++)
-	std::cout << planetValOLD[indx] << " ";
-      std::cout << std::endl;
+      //for(int indx=0;indx<numPlanets;indx++)
+      //	std::cout << planetValOLD[indx] << " ";
+      //std::cout << std::endl;
 
       STATIONARY_COUNT++;
 	  
