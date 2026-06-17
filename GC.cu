@@ -20,6 +20,7 @@
 #include <numeric>
 #include "../minimizer/minimizer.h"
 #include <random>
+#include <numbers>
 
 void granger(std::vector<float> angleArray,
 	     std::vector<float> &GCvals, paramContainer params,
@@ -419,29 +420,56 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
   // gradient arrays for each block.
 
   int STATIONARY_COUNT = 0;
-  const int COUNTMAX = params.STUCKCOUNT;
+  //const int COUNTMAX = params.STUCKCOUNT;
   
   //for(int iter=0;iter<numIts;iter++)
 
-  int numPlanets = 10; // THIS WILL BE A USER PASSABLE PARAMETER
+  int numPlanets = 5; // THIS WILL BE A USER PASSABLE PARAMETER
   std::vector<float> planetValOLD(numPlanets,100.0);
   std::vector<std::vector<float>> planetaryAngles;
-
-  for(int pindx=0;pindx<numPlanets;pindx++)
-    {
-      std::vector<float> tmpVec(numComps-1,0.0);
-      planetaryAngles.push_back(tmpVec);
-    }
-  minimizer GCsmall(numPlanets,numComps-1);
-  std::vector<float> masses(numPlanets,1.0);
-  GCsmall.assignPlanets(masses,planetaryAngles);
-
-
-  std::cout << "ps " << planetaryAngles.size() << std::endl;
+  // Seed some noise
   std::random_device rd;
   std::mt19937 gen(rd());
   float varnce = 0.05;
   std::normal_distribution<float> dist(0.0,varnce);
+  std::uniform_real_distribution<float> udist(-M_PI,M_PI);
+  // Need something a little better here
+
+
+  for(int block=0;block<numBlocks;block++)
+    granger(angleArray[block],GCvals[block],paramsBLOCKED,numComps,workArray);
+
+  // Combine all of the GCs to reduce the writing of code. 
+  std::vector<float> GCall(numBlocks*particleBlockSize);
+  for(int block=0;block<numBlocks;block++)
+    std::copy(GCvals[block].begin(),GCvals[block].end(),GCall.begin()+block*particleBlockSize);
+
+  std::vector<int> indices(GCall.size());
+  std::iota(indices.begin(),indices.end(),0);
+      
+  std::nth_element(indices.begin(), indices.begin() + numPlanets, indices.end(),
+		   [&](int i,int j) {return GCall[i] < GCall[j];});
+  for(int pindx=0;pindx<numPlanets;pindx++)
+    {
+      std::vector<float> tmpVec(numComps-1);
+      int blockNum = int(indices[pindx]/particleBlockSize);
+      int indx = indices[pindx]-blockNum*particleBlockSize;
+      std::copy(angleArray[blockNum].begin()+indx*(numComps-1),
+		angleArray[blockNum].begin()+(indx+1)*(numComps-1),
+		tmpVec.begin());
+      planetaryAngles.push_back(tmpVec);
+      planetValOLD[pindx] = GCall[indices[pindx]];
+    }
+  minimizer GCsmall(numPlanets,numComps-1);
+  std::vector<float> masses(numPlanets,1.0);
+  GCsmall.assignPlanets(masses,planetaryAngles);
+ 
+  // ---------------------
+  // MINIMIZATION LOOP
+  // ---------------------
+  int iter=0;
+  int COUNTMAX = 500;
+  STATIONARY_COUNT = 0;
   while(STATIONARY_COUNT < COUNTMAX)
     {
       
@@ -450,25 +478,24 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
 	granger(angleArray[block],GCvals[block],paramsBLOCKED,numComps,workArray);
 
       // Combine all of the GCs to reduce the writing of code. 
-      std::vector<float> GCall(numBlocks*particleBlockSize);
+      //std::vector<float> GCall(numBlocks*particleBlockSize);
       for(int block=0;block<numBlocks;block++)
 	std::copy(GCvals[block].begin(),GCvals[block].end(),GCall.begin()+block*particleBlockSize);
 
-      std::vector<int> indices(GCall.size());
+      //std::vector<int> indices(GCall.size());
       std::iota(indices.begin(),indices.end(),0);
       
       //std::nth_element(indices.begin(), indices.begin() + numPlanets, indices.end(),
       //	       [&](int i,int j) {return GCall[i] < GCall[j];});
 
       std::sort(indices.begin(),indices.end(),[&](int i,int j) {return GCall[i] < GCall[j];});
-
+      
       for(int indx=0;indx<GCall.size();indx++)
 	{
 	  std::vector<int> eligible_for_change;
 	  for(int pindx=0;pindx<numPlanets;pindx++)
 	    if(GCall[indices[indx]] < planetValOLD[pindx])
 	      {
-		//std::cout << "ae" << std::endl;
 		eligible_for_change.push_back(pindx);
 	      }
 	  if(eligible_for_change.size() == 0)
@@ -507,7 +534,7 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
 	    std::copy(angleArray[blockNum].begin()+p*(numComps-1),
 		      angleArray[blockNum].begin()+(p+1)*(numComps-1),
 		      tmpVec.begin());
-	    tmpVec = GCsmall.advanceInTime(tmpVec);
+	    tmpVec = GCsmall.advanceInTime(tmpVec,0.1,5.0,0.9);
 	    // Add a little noise to tmpVec
 	    for(int angle=0;angle<numComps-1;angle++)
 	      tmpVec[angle] = tmpVec[angle] + dist(gen);
@@ -527,22 +554,20 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L, dataClass
       for(int indx=0;indx<numPlanets;indx++)
 	std::cout << planetValOLD[indx] << " ";
       std::cout << std::endl;
+
+      STATIONARY_COUNT++;
 	  
     }
       
      
-  /*
+  
   // Return the best angle.
-
-  long unsigned int indexVal = GCminIndex[minBlockNumber];
-
-  //printf("%li \n",indexVal);
-
-  std::copy(angleArray[minBlockNumber].data()+indexVal*(numComps-1),angleArray[minBlockNumber].data()+indexVal*(numComps-1)+numComps-1,bestAngle.begin());
+  int mindex = std::min_element(planetValOLD.begin(),planetValOLD.end())-planetValOLD.begin();
+  std::copy(planetaryAngles[mindex].begin(),planetaryAngles[mindex].end(),
+	    bestAngle.begin());
 
   freeWorkArray(workArray);
-  */
-  exit(0);
+
   return; 
 }
 
