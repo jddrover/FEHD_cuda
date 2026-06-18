@@ -18,7 +18,7 @@
 #include "dataClass.h"
 #include "dataCompute.h"
 #include <numeric>
-#include "../minimizer/minimizer.h"
+#include "minimizer.h"
 #include <random>
 #include <numbers>
 
