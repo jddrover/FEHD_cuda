@@ -18,6 +18,33 @@
 #include "dataClass.h"
 #include "dataCompute.h"
 
+void granger_vruj(std::vector<float> q, std::vector<std::complex<float>> Tf ,std::vector<float> &GCvals)
+{
+  // q is numComps x numParticles
+  // Tf is (numComps x numFreqs) x numComps
+  // GCvals is numParticles
+
+  // Put checks on these to ensure nothing is the wrong size.
+  int numParticles = GCvals.size();
+  int numComps = q.size()/numParticles;
+  int numFreqs = Tf.size()/(numComps*numComps);
+
+
+  
+  cublasHandle_t cublasH = 0;
+  cublasCreate(&cublasH);
+
+  cublasSgemm(cublasH,CUBLAS_OP_N,CUBLAS_OP_N,numComps*numFreqs,numParticles,numComps,
+	      &alpha,Tf,numComps*numFreqs,q,numComps,
+	      &beta,Gq,numComps*numFreqs);
+  
+  
+
+
+
+
+
+
 void granger(std::vector<float> angleArray,
 	     std::vector<float> &GCvals, paramContainer params,
 	     int numComps,workForGranger workArray)
