@@ -17,34 +17,55 @@
 #include "workArray.h"
 #include "dataClass.h"
 #include "dataCompute.h"
+#include <cuComplex.h>
 
-void granger_vruj(std::vector<float> q, std::vector<std::complex<float>> Tf ,std::vector<float> &GCvals)
+void granger_vruj(float *q, cuComplex *Tf ,float *GCvals,int numComps,int numFreqs,int numParticles)
 {
-  // q is numComps x numParticles
-  // Tf is (numComps x numFreqs) x numComps
-  // GCvals is numParticles
+  // Input q is numComps x numParticles - on the device
+  // Input Tf is (numComps x numFreqs) x numComps - on the device
+  // Output GCvals is numParticles - on the device
+  // worker Gq is numFreqs x numComps x numParticles
+  // worker qtGq is numFreqs x numParticles
 
-  // Put checks on these to ensure nothing is the wrong size.
-  int numParticles = GCvals.size();
-  int numComps = q.size()/numParticles;
-  int numFreqs = Tf.size()/(numComps*numComps);
-
-
+  // These creations should take place outside of the loop containing this function.
+  // Once this works I will move them. 
+  cuComplex *qtGq;
+  cudaMalloc((void**)&qtGq,sizeof(cuComplex)*numFreqs*numParticles);
+  cuComplex *Gq;
+  cudaMalloc((void**)&Gq,sizeof(cuComplex)*numFreqs*numParticles*numComps);
+  float *Gq2;
+  cudaMalloc((void**)&Gq2,sizeof(float)*numFreqs*numParticles);
   
+  int blksize = 1024;
+  const dim3 GqblockSize(blksize);
+  int grdSize = (int)((numParticles*numFreqs+blksize-1)/blksize);
+  const dim3 GqgridSize(grdSize);
+  grdsize = (int)(numParticles*numFreqs+blksize-1)/blksize;
+  const dim3 qtGqblockSize(blksize);
+  const dim3 qtGqgridSize(grdsize);
+  
+
   cublasHandle_t cublasH = 0;
   cublasCreate(&cublasH);
 
+  // Compute Gq
   cublasSgemm(cublasH,CUBLAS_OP_N,CUBLAS_OP_N,numComps*numFreqs,numParticles,numComps,
 	      &alpha,Tf,numComps*numFreqs,q,numComps,
 	      &beta,Gq,numComps*numFreqs);
+
+  // Compute the norm of Gq
+  norm2Gq<<<GqblockSize,GqgridSize>>>(Gq2,Gq,numComps,numFreqs,numParticles);
+  
+  // Compute qtGq   
+  manyDots<<<qtGqgridSize,qtGqblockSize>>>(qtGq,q,Gq,numComps,numFreqs,numParticles);
   
   
+  cudaFree(qtGq);
+  cudaFree(Gq);
 
 
 
-
-
-
+  /*
 void granger(std::vector<float> angleArray,
 	     std::vector<float> &GCvals, paramContainer params,
 	     int numComps,workForGranger workArray)
@@ -709,7 +730,7 @@ void computeBlocks(int &numBlocks,int &particleBlockSize,size_t memval,paramCont
 
   return;
 }
-
+  */
 
   
   
