@@ -73,8 +73,26 @@ void norm2Gq(float *Gq2,cuComplex *Gq,int numComps,int numFreqs, int numParticle
 }
 
 __global__
-void computeGC(float *GCvals,float *Gq2,float *qtGq,float *freq, int numComps,int numFreqs,int numParticles)
+void computeGC(float *GCvals,float *Gq2,float *absqtGq,float *freq, int numFreqs,int numParticles)
 {
+  // Input Gq2 is numFreqs x numParticles
+  // Input qtGq is numFreqs x numParticles
+  // Output GCvals is numParticles
+  const int idx = threadIdx.x+blockDim.x*blockIdx.x;
+
+  if(idx>=numParticles) {return;}
+
+  GCvals[idx] = 0.0f;
+  
+  for(int findx=0;findx<numFreqs;++findx)
+    {
+      if(findx == 0 || findx == numFreqs-1)
+	GCvals[idx] += 0.5*logf(Gq2[idx*numFreqs+findx]/absqtGq[idx*numFreqs+findx]);
+      else
+	GCvals[idx] += logf(Gq2[idx*numFreqs+findx]/absqtGq[idx*numFreqs+findx]);
+    }
+
+  
 }
 
 __global__

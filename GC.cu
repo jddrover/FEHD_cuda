@@ -31,10 +31,15 @@ void granger_vruj(float *q, cuComplex *Tf ,float *GCvals,int numComps,int numFre
   // Once this works I will move them. 
   cuComplex *qtGq;
   cudaMalloc((void**)&qtGq,sizeof(cuComplex)*numFreqs*numParticles);
+  float *absqtGq;
+  cudaMalloc((void**)&absqtGq,sizeof(float)*numFreqs*numParticles);
   cuComplex *Gq;
   cudaMalloc((void**)&Gq,sizeof(cuComplex)*numFreqs*numParticles*numComps);
   float *Gq2;
   cudaMalloc((void**)&Gq2,sizeof(float)*numFreqs*numParticles);
+  float *GCvals;
+  cudaMalloc((void**)&GCvals,sizeof(float)*numParticles);
+
   
   int blksize = 1024;
   const dim3 GqblockSize(blksize);
@@ -58,9 +63,10 @@ void granger_vruj(float *q, cuComplex *Tf ,float *GCvals,int numComps,int numFre
   
   // Compute qtGq   
   manyDots<<<qtGqgridSize,qtGqblockSize>>>(qtGq,q,Gq,numComps,numFreqs,numParticles);
+  // I want qtGq to be real, I will write another kernel.
   
   // Compute the log(Gq2/qtGq)
-  computeGC<<<cGCgridSize,cGCblockSize>>>(GCvals,Gq2,qtGq,
+  computeGC<<<cGCgridSize,cGCblockSize>>>(GCvals,Gq2,absqtGq,numFreqs,numParticles);
   
   cudaFree(qtGq);
   cudaFree(Gq);
