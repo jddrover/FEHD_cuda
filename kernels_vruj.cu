@@ -73,6 +73,11 @@ void norm2Gq(float *Gq2,cuComplex *Gq,int numComps,int numFreqs, int numParticle
 }
 
 __global__
+void computeGC(float *GCvals,float *Gq2,float *qtGq,float *freq, int numComps,int numFreqs,int numParticles)
+{
+}
+
+__global__
 void G_vruj(cuComplex *G,float *AR,float *f,int *lagList,int numComps,int numFreqs,int numLags)
 {
   // Computes the inverse of the transfer function tf(f)=I-sum(A_k exp(-2pi*i*dt*f*lag[k]))

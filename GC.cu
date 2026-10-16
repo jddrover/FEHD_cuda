@@ -59,6 +59,8 @@ void granger_vruj(float *q, cuComplex *Tf ,float *GCvals,int numComps,int numFre
   // Compute qtGq   
   manyDots<<<qtGqgridSize,qtGqblockSize>>>(qtGq,q,Gq,numComps,numFreqs,numParticles);
   
+  // Compute the log(Gq2/qtGq)
+  computeGC<<<cGCgridSize,cGCblockSize>>>(GCvals,Gq2,qtGq,
   
   cudaFree(qtGq);
   cudaFree(Gq);
