@@ -1,6 +1,23 @@
 #include "kernels_vruj.h"
 #include <cuComplex.h>
 
+__global__
+void makeGq(cuComplex *Gq,cuComplex *G,float *q,int numComps,int numFreqs,int numParticles)
+{
+  const int idx = threadIdx.x+blockDum.x*blockIdx.x;
+  if(idx >= numParticles*numFreqs*numComps){return};
+
+  int idx_column = int(idx/(numComps*numFreqs));
+  int idx_row = idx-idx_column*numComps*numFreqs;
+  cuComplex summer = make_cuFloatComplex(0.0f,0.0f);
+  
+  for(int k=0;k<numComps;++k)
+    {
+      summer.x += G[k*numFreqs*numParticles+idx_row].x*q[idx_column*numComps+k];
+      summer.y += G[k*numFreqs*numParticles+idx_row].y*q[idx_column*numComps+k];
+    }
+  Gq[idx] = summer;
+}
 
 __global__
 void manyDots(cuComplex *qtGq,float *q,cuComplex *Gq,int numComps,int numFreqs,int numParticles)
@@ -27,6 +44,19 @@ void manyDots(cuComplex *qtGq,float *q,cuComplex *Gq,int numComps,int numFreqs,i
   qtGq[idx] = sum;  
 }
 
+
+__global__
+void magnitude(float *absqtGq, cuComplex *qtGq, int numFreqs,int numParticles)
+{
+  const int idx = threadIdx.x+blockDim.x*blockIdx.x;
+
+  if(idx >= numFreqs*numParticles) {return;}
+
+  float mag = 0.0f;
+  mag = qtGq[idx].x*qtGq[idx].x + qtGq[idx].y*qtGq[idx].y;
+  absqtGq[idx] = sqrtf(mag);
+}
+    
 
 __global__
 void normalize_q(float *qout,float *q, int numComps,int numParticles)
@@ -73,25 +103,22 @@ void norm2Gq(float *Gq2,cuComplex *Gq,int numComps,int numFreqs, int numParticle
 }
 
 __global__
-void computeGC(float *GCvals,float *Gq2,float *absqtGq,float *freq, int numFreqs,int numParticles)
+void computeGC(float *GCvals,float *Gq2,float *absqtGq,int numFreqs,int numParticles)
 {
   // Input Gq2 is numFreqs x numParticles
-  // Input qtGq is numFreqs x numParticles
+  // Input absqtGq is numFreqs x numParticles
   // Output GCvals is numParticles
+
   const int idx = threadIdx.x+blockDim.x*blockIdx.x;
 
   if(idx>=numParticles) {return;}
+  // Trapezoids for integration.
+  float GC = 0.0f;
 
-  GCvals[idx] = 0.0f;
-  
-  for(int findx=0;findx<numFreqs;++findx)
-    {
-      if(findx == 0 || findx == numFreqs-1)
-	GCvals[idx] += 0.5*logf(Gq2[idx*numFreqs+findx]/absqtGq[idx*numFreqs+findx]);
-      else
-	GCvals[idx] += logf(Gq2[idx*numFreqs+findx]/absqtGq[idx*numFreqs+findx]);
-    }
-
+  GC += 0.5*logf(Gq2[idx*numFreqs]/absqtGq[idx*numFreqs]);
+  for(int findx=1;findx<numFreqs-1;++findx)
+    GC += logf(Gq2[idx*numFreqs+findx]/absqtGq[idx*numFreqs+findx]);
+  GC += 0.5*logf(Gq2[idx*numFreqs+numFreqs-1]/absqtGq[idx*numFreqs+numFreqs-1]);
   
 }
 
@@ -127,4 +154,11 @@ void G_vruj(cuComplex *G,float *AR,float *f,int *lagList,int numComps,int numFre
     G[idx].x += 1.0f;    
 }
 
-  
+__global__
+void make_q_complex(cuComplex *qcmplx,float *q,int numComps,int numParticle)
+{
+  const int idx = threadIdx.x+blockDim.x*blockIdx.x;
+  if(idx >= numComps*numParticles) {return;}
+
+  qcmplx[idx] = make_cuFloatComplex(q[idx],0.0f);
+}
