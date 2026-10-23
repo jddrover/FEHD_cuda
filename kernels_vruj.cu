@@ -54,7 +54,7 @@ void magnitude(float *absqtGq, cuComplex *qtGq, int numFreqs,int numParticles)
 
   float mag = 0.0f;
   mag = qtGq[idx].x*qtGq[idx].x + qtGq[idx].y*qtGq[idx].y;
-  absqtGq[idx] = sqrtf(mag);
+  // absqtGq[idx] = sqrtf(mag); 
 }
     
 
@@ -140,18 +140,19 @@ void G_vruj(cuComplex *G,float *AR,float *f,int *lagList,int numComps,int numFre
 
   float argmtBASE = -2.0f*3.1415f*dt*f[idx_freq];
 
-  G[idx].x = 0.0f;
-  G[idx].y = 0.0f;
-   
+  // Switch this to a single value.
+  cuComplex Gent = make_cuFloatComplex(0.0f,0.0f)
   for(int lag=0;lag<numLags;++lag)
     {
       float argmt = argmtBase*((float)(lagList[lag]));
-      G[idx].x -= AR[lag*numComps*numComps+idx_column*numComps+idx_row]*cosf(argmt);
-      G[idx].y -= AR[lag*numComps*numComps+idx_column*numComps+idx_row]*sinf(argmt);
+      Gent.x -= AR[lag*numComps*numComps+idx_column*numComps+idx_row]*cosf(argmt);
+      Gent.y -= AR[lag*numComps*numComps+idx_column*numComps+idx_row]*sinf(argmt);
     }
 
   if(idx_column == idx_row)
-    G[idx].x += 1.0f;    
+    Gent.x += 1.0f;
+
+  G[idx] = Gent;
 }
 
 __global__

@@ -57,6 +57,7 @@ void granger_vruj(float *q, cuComplex *Tf ,float *GCvals,int numComps, int numFr
   grdSize = (int)((numParticles*numFreqs*numComps+blksize-1)/blksize);
   const dim3 GqgridSize(grdSize);
   makeGq<<<GqblockSize,GqgridSize>>>(Gq,G,q,numComps,numFreqs,numParticles);
+
   // Compute the norm of Gq
   const dim3 Gq2blockSize(blksize);
   grdsize = (int)((numParticles*numFreqs+blksize-1)/blksize);
