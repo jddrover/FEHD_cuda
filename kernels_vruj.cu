@@ -2,6 +2,35 @@
 #include <cuComplex.h>
 
 __global__
+void GstarGq(cuComplex *GsGq,cuComplex *G,cuComplex *Gq,int numComps,int numFreqs,int numParticles)
+{
+  const int idx = threadIdx.x+blockDum.x*blockIdx.x;
+
+  if(idx >= numParticles*numFreqs*numComps){return};
+  
+  int idx_particle = int(idx/numComps*numFreqs);
+  int idx_freq = int(idx/numComps-idx_particle*numFreqs); 
+  int idx_comp = idx-idx_particle*numComps*numFreqs-idx_freq*numComps;
+
+  cuComplex cmplx_counter = make_cuComplex(0.0f,0.0f);
+  for(int k=0;k<numComps)
+    {
+      cmplx_counter.x += G[idx_comp*numFreqs*numComps+idx_freq*numComps+k].x * // a
+	Gq[idx_particle*numFreqs*numComps+idx_freq*numComps+k].x - // c
+	-G[idx_comp*numFreqs*numComps+idx_freq*numComps+k].y * // -b (conj)
+	Gq[idx_particle*numFreqs*numComps+idx_freq*numComps+k].y; // d
+      cmplx_counter.y += G[idx_comp*numFreqs*numComps+idx_freq*numComps+k].x *
+	Gq[idx_particle*numFreqs*numComps+idx_freq*numComps+k].y +
+	-G[idx_comp*numFreqs*numComps+idx_freq*numComps+k].y *
+	Gq[idx_particle*numFreqs*numComps+idx_freq*numComps+k].x;
+    }
+  GsGq[idx] = cmplx_counter;
+}
+
+
+
+	
+__global__
 void makeGq(cuComplex *Gq,cuComplex *G,float *q,int numComps,int numFreqs,int numParticles)
 {
   const int idx = threadIdx.x+blockDum.x*blockIdx.x;
@@ -20,7 +49,27 @@ void makeGq(cuComplex *Gq,cuComplex *G,float *q,int numComps,int numFreqs,int nu
 }
 
 __global__
-void manyDots(cuComplex *qtGq,float *q,cuComplex *Gq,int numComps,int numFreqs,int numParticles)
+void GTplusG(cuComplex *GTpGd2,cuComplex *G,int numComps,int numFreqs)
+{
+  const int idx = threadIdx.x+blockDum.x*blockIdx.x;
+  if(idx >= numComps*numFreqs*numComps){return};
+
+  int idx_column = int(idx/(numFreqs*numComps));
+  int idx_freq = int(idx/numComps-idx_column*numFreqs);
+  int idx_row = idx - idx_column*numFreqs*numComps - idx_freq*numComps;
+
+  cuComplex tmp = make_cuComplex(0.0f,0.0f);
+  tmp.x = G[idx_column*numComps*numFreqs+idx_freq*numComps+idx_row].x +
+    G[idx_row*numComps*numFreqs+idx_freq*numComps+idx_column].x;
+  tmp.y = G[idx_column*numComps*numFreqs+idx_freq*numComps+idx_row].y +
+    G[idx_row*numComps*numFreqs+idx_freq*numComps+idx_column].y;
+
+  GTpGd2[idx] = tmp;
+}
+
+
+__global__
+void qTGq(cuComplex *qtGq,float *q,cuComplex *Gq,int numComps,int numFreqs,int numParticles)
 {
   // Multiplies (dot product) q, as a row vector, times the previously computed Gq. 
 
@@ -39,14 +88,15 @@ void manyDots(cuComplex *qtGq,float *q,cuComplex *Gq,int numComps,int numFreqs,i
   for(int k=0;k<numComps;++k)
     {
       sum.x += q[idx_particle*numComps+k]*Gq[idx_particle*numComps*numFreqs+idx_freq*numComps+k].x;
-      sum.y += q[idx_particle*numComps+k]*Gq[idx_particle*numComps*numFreqs+idx_freq*numComps+k].y;
+      sum.y -= q[idx_particle*numComps+k]*Gq[idx_particle*numComps*numFreqs+idx_freq*numComps+k].y;
     }
-  qtGq[idx] = sum;  
+  qtGq[idx] = sum;
+  
 }
 
 
 __global__
-void magnitude(float *absqtGq, cuComplex *qtGq, int numFreqs,int numParticles)
+void magnitude2(float *absqtGq, cuComplex *qtGq, int numFreqs,int numParticles)
 {
   const int idx = threadIdx.x+blockDim.x*blockIdx.x;
 
@@ -54,7 +104,7 @@ void magnitude(float *absqtGq, cuComplex *qtGq, int numFreqs,int numParticles)
 
   float mag = 0.0f;
   mag = qtGq[idx].x*qtGq[idx].x + qtGq[idx].y*qtGq[idx].y;
-  // absqtGq[idx] = sqrtf(mag); 
+   
 }
     
 
@@ -98,7 +148,7 @@ void norm2Gq(float *Gq2,cuComplex *Gq,int numComps,int numFreqs, int numParticle
 	Gq[idx_particle*numFreqs*numComps+idx_freq*numComps+k].y*
 	Gq[idx_particle*numFreqs*numComps+idx_freq*numComps+k].y;
     }
-  nrm2 = sqrtf(nrm2);
+  //nrm2 = sqrtf(nrm2);
   Gq2[idx] = nrm2;
 }
 

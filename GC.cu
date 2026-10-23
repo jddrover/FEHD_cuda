@@ -65,7 +65,7 @@ void granger_vruj(float *q, cuComplex *Tf ,float *GCvals,int numComps, int numFr
   norm2Gq<<<Gq2blockSize,Gq2gridSize>>>(Gq2,Gq,numComps,numFreqs,numParticles);
   
   // Compute qtGq   
-  manyDots<<<qtGqgridSize,qtGqblockSize>>>(qtGq,q,Gq,numComps,numFreqs,numParticles);
+  qTGq<<<qtGqgridSize,qtGqblockSize>>>(qtGq,q,Gq,numComps,numFreqs,numParticles);
   // Take the absolute value (so that the result is a float)
   magnitude<<<qtGqBlockSize,qtGqGridSize>>>(absqtGq,qtGq,numFreqs,numParticles);  
   // Compute the log(Gq2/qtGq)
@@ -81,10 +81,10 @@ void granger_vruj(float *q, cuComplex *Tf ,float *GCvals,int numComps, int numFr
 
 }
 
-gradient_vruj(float *gradient, cuComplex *G,int numComps,int numFreqs,int numParticles);
+gradient_vruj(float *gradient, cuComplex *G,float *q,int numComps,int numFreqs,int numParticles);
 {
-  cuComplex *qtGq;
-  cudaMalloc((void**)&qtGq,sizeof(cuComplex)*numFreqs*numParticles);
+  cuComplex *s;
+  cudaMalloc((void**)&s,sizeof(cuComplex)*numFreqs*numParticles);
   float *absqtGq;
   cudaMalloc((void**)&absqtGq,sizeof(float)*numFreqs*numParticles);
   cuComplex *Gq;
@@ -94,39 +94,43 @@ gradient_vruj(float *gradient, cuComplex *G,int numComps,int numFreqs,int numPar
   float *GCvals;
   cudaMalloc((void**)&GCvals,sizeof(float)*numParticles);
 
-  
+  // numComps * numFreqs * numParticles
   int blksize = 1024;
-  const dim3 GqblockSize(blksize);
-  int grdSize = (int)((numParticles*numFreqs+blksize-1)/blksize);
-  const dim3 GqgridSize(grdSize);
-  grdsize = (int)(numParticles*numFreqs+blksize-1)/blksize;
-  const dim3 qtGqblockSize(blksize);
-  const dim3 qtGqgridSize(grdsize);
-  
-  
-  
+  const dim3 CFP_block(blksize);
+  int grdSize = (int)((numParticles*numFreqs*numComps+blksize-1)/blksize);
+  const dim3 CFP_grid(grdSize);
+
+  // numParticles*numFreqs
+  const dim3 FP_block(blksize);
+  grdsize = (int)((numFreqs*numParticles+blksize-1)/blksize);
+  const dim3 FP_grid(grdsize);
+
+  // (numComps*numFreqs)*numComps
+  const dim3 CCF_block(blksize);
+  grdsize = (int)((numFreqs*numComps*numComps+blksize-1)/blksize);
+  const dim3 CCF_grid(grdsize);
+
+
+  // cublas handle
   cublasHandle_t cublasH = 0;
   cublasCreate(&cublasH);
 
-  // Compute Gq - This is mixing real and complex and cublas does not like that.
-  // The same problem is in the GC function above.
-  const dim3 qConvertBlockSize(blksize);
-  grdsize = (int)((numParticles*numComps+blksize-1)/blksize);
-  const dim3 qConvertGridSize(grdsize);
-  make_q_complex<<<qConvertBlockSize,qConvertGridSize>>>(qcmplx,q,numComps,numParticles);
-  // I might just want to write this whole thing out. 
-  cublasSgemm(cublasH,CUBLAS_OP_N,CUBLAS_OP_N,numComps*numFreqs,numParticles,numComps,
-	      &alpha,Tf,numComps*numFreqs,qmplx,numComps,
-	      &beta,Gq,numComps*numFreqs);
-  // Compute G*Gq
+  // Compute Gq
+  makeGq<<<CFP_grid,CFP_block>>>(Gq,G,q,numComps,numFreqs,numParticles);
   
   // Compute the norm of Gq
-  norm2Gq<<<GqblockSize,GqgridSize>>>(Gq2,Gq,numComps,numFreqs,numParticles);
+  norm2Gq<<<FP_grid,FP_block>>>(Gq2,Gq,numComps,numFreqs,numParticles);
   
-  // Compute qtGq   
-  manyDots<<<qtGqgridSize,qtGqblockSize>>>(qtGq,q,Gq,numComps,numFreqs,numParticles);
-  // Take the absolute value (so that the result is a float)
+  // Compute (G*)Gq
+  GstarGq<<<CFP_grid,CFP_block>>>(GsGq,G,Gq,numComps,numFreqs,numParticles);
 
+  // Compute conj(s) 
+  conjS<<<FP_grid,FP_block>>>(sconj,q,Gq,numComps,numFreqs,numParticles);
+  // |s|^2
+  magnitude2<<<FP_grid,FP_block>>>(smag2,sconj,numFreqs,numParticles);
+
+  // Compute (G^T+G)/2
+  GTplusG<<<CCF_grid,CCF_block>>>(GTpGd2,G,numComps,numFreqs);
   
 
 
