@@ -129,8 +129,14 @@ gradient_vruj(float *gradient, cuComplex *G,float *q,int numComps,int numFreqs,i
   // |s|^2
   magnitude2<<<FP_grid,FP_block>>>(smag2,sconj,numFreqs,numParticles);
 
-  // Compute (G^T+G)/2
-  GTplusG<<<CCF_grid,CCF_block>>>(GTpGd2,G,numComps,numFreqs);
+  // Compute Gs=(G^T+G)/2
+  GTplusG<<<CCF_grid,CCF_block>>>(Gs,G,numComps,numFreqs);
+
+  // Compute Gsq
+  makeGq<<<CFP_grid,CFP_block>>>(Gsq,Gs,q,numComps,numFreqs,numParticles);
+  
+  
+  
   
 
 

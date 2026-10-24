@@ -48,6 +48,39 @@ void makeGq(cuComplex *Gq,cuComplex *G,float *q,int numComps,int numFreqs,int nu
   Gq[idx] = summer;
 }
 
+
+__global__
+void calcGradient(float *delF,cuComplex *Gsq,cuComplex *sconj,float *Gq2,cuComplex *GstarGq,float *q,
+		  int numComps,int numFreqs,int numParticles)
+{
+  const int idx = threadIdx.x+blockDum.x*blockIdx.x;
+  if(idx >= numParticles*numFreqs*numComps){return};
+
+  int idx_particle = int(idx/(numComps*numFreqs));
+  int idx_freq = int(idx/numComps-idx_particle*numFreqs);
+  int idx_comp = idx - idx_freq*numComps-idx_particle*numComps*numFreqs;
+
+  float delF_element1 = 0.0f;
+
+  delF_element = 2.0*GstarGq[idx_particle*numComps*numFreqs+idx_freq*numComps+idx_comp].x /
+    Gq2[idx_particle*numFreqs+idx_freq];
+
+  float delF_element2 = 0.0f;
+  delF_element2 = 4.0*(Gsq[idx].x*sconj[idx_particle*numFreqs+idx_freq].x -
+		       Gsq[idx].y*sconj[idx_particle*numFreqs+idx_freq].y) /
+    (sconj[idx_particle*numFreqs+idx_freq].x*sconj[idx_particle*numFreqs+idx_freq].x +
+     sconj[idx_particle*numFreqs+idx_freq].y*sconj[idx_particle*numFreqs+idx_freq].y);
+
+  delF[idx] = delF_element-delF_element2;
+
+
+  
+  
+
+
+
+
+}
 __global__
 void GTplusG(cuComplex *GTpGd2,cuComplex *G,int numComps,int numFreqs)
 {
@@ -137,8 +170,8 @@ void norm2Gq(float *Gq2,cuComplex *Gq,int numComps,int numFreqs, int numParticle
   const int idx = threadIdx.x+blockDim.x*blockIdx.x;
   if(idx >= numFreqs*numParticles) {return;}
 
-  idx_particle = int(idx/(numComps*numFreqs));
-  idx_freq = idx/numComps - idx_particle*numFreqs;
+  idx_particle = int(idx/numFreqs);
+  idx_freq = idx - idx_particle*numFreqs;
 
   float nrm2 = 0.0f;
   for(int k=0;k<numComps;++k)
