@@ -73,13 +73,13 @@ void calcGradient(float *delF,cuComplex *Gsq,cuComplex *sconj,float *Gq2,cuCompl
 
   delF[idx] = delF_element-delF_element2;
 
+  // Can I do the projection here?
+  // numComps x (numComps x numParticles)
+  // Everything is real
 
   
+
   
-
-
-
-
 }
 __global__
 void GTplusG(cuComplex *GTpGd2,cuComplex *G,int numComps,int numFreqs)
