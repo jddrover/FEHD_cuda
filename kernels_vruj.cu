@@ -72,13 +72,6 @@ void calcGradient(float *delF,cuComplex *Gsq,cuComplex *sconj,float *Gq2,cuCompl
      sconj[idx_particle*numFreqs+idx_freq].y*sconj[idx_particle*numFreqs+idx_freq].y);
 
   delF[idx] = delF_element-delF_element2;
-
-  // Can I do the projection here?
-  // numComps x (numComps x numParticles)
-  // Everything is real
-
-  
-
   
 }
 __global__

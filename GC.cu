@@ -134,7 +134,8 @@ gradient_vruj(float *gradient, cuComplex *G,float *q,int numComps,int numFreqs,i
 
   // Compute Gsq
   makeGq<<<CFP_grid,CFP_block>>>(Gsq,Gs,q,numComps,numFreqs,numParticles);
-  
+
+  calcGradient<<<CFP_grid,CFP_block>>>(delF,Gsq,sconj,Gq2,GstarGq,q,numComps,numFreqs,numParticles);
   
   
   
