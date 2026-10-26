@@ -96,7 +96,8 @@ void gradient_vruj(workForGranger wa,int numComps,int numFreqs,int numParticles)
   				       numComps,numFreqs,numParticles);
 
   projectQorth<<<CFP_grid,CFP_block>>>(wa.q_tmp,wa.q_dev,wa.delF_dev,numComps,numFreqs,numParticles);
-  
+
+  cudaDeviceSynchronize();
   return;
 }
 
@@ -156,24 +157,44 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L,
 
   normalize_q<<<CP_grid,CP_block>>>(wa.q_dev,wa.q_tmp,numComps,params.numParticles);
 
-  granger_vruj(wa,numComps,params.numFreqs,params.numParticles);
+  
+  //granger_vruj(wa,numComps,params.numFreqs,params.numParticles);
+      
+  
+    
+  std::vector<float> p = {0.0001,0.001,0.01,0.1};
 
-  gradient_vruj(wa,numComps,params.numFreqs,params.numParticles);
+  cublasHandle_t cublasH = 0;
+  cublasCreate(&cublasH);
+  
+  std::vector<float> diffF(numComps*params.numParticles);
+
+
+  for(int iter=0;iter<p.size();iter++)
+    {
+      float alpha = -p[iter];
+      cublasSaxpy(cublasH,numComps*params.numParticles,&alpha,wa.q_tmp,1,wa.q_dev,1);
+      // Scale q here.
+      cudaDeviceSynchronize();
+      gradient_vruj(wa,numComps,params.numFreqs,params.numParticles);
+      cudaMemcpy(diffF.data(),wa.q_tmp,sizeof(float)*numComps*params.numParticles,cudaMemcpyDeviceToHost);
+
+      float sum=0.0f;
+      for(int k=0;k<numComps;k++)
+	{
+	  sum += q_host[k+numComps]*diffF[k+params.numFreqs*numComps];
+	  std::cout << diffF[k+params.numFreqs*numComps] << std::endl;
+	}
+     
+      std::cout << sum << std::endl;
+    }
+      
+  // q hasn't changed.
+  
+  //std::vector<cuComplex> diffF(params.numFreqs*params.numParticles*numComps);
   
 
-
-  // q hasn't changed.
-  std::vector<float> diffF(numComps*params.numParticles);
-  //std::vector<cuComplex> diffF(params.numFreqs*params.numParticles*numComps);
-  cudaMemcpy(diffF.data(),wa.q_tmp,sizeof(float)*numComps*params.numParticles,cudaMemcpyDeviceToHost);
-
-  float sum = 0.0;
-
-  for(int k=0;k<numComps;k++)
-    sum += q_host[k]*diffF[k+params.numFreqs*numComps];
-    //  std::cout << diffF[k].x << " + " << diffF[k].y << "i" << std::endl;
-    //std::cout << diffF[k] << std::endl;
-  std::cout << sum << std::endl;
+  
   exit(0);
   return;
 }
