@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include "kernels_vruj.h"
 #include <cuComplex.h>
 
@@ -10,13 +11,13 @@ void GstarGq(cuComplex *GsGq,cuComplex *G,cuComplex *Gq,int numComps,int numFreq
 
   if(idx >= numParticles*numFreqs*numComps){return;}
   
-  int idx_particle = int(idx/numComps*numFreqs);
+  int idx_particle = int(idx/(numComps*numFreqs));
   int idx_freq = int(idx/numComps-idx_particle*numFreqs); 
   int idx_comp = idx-idx_particle*numComps*numFreqs-idx_freq*numComps;
 
   cuComplex cmplx_counter = make_cuComplex(0.0f,0.0f);
-  for(int k=0;k<numComps;++k)
-    {
+  for(int k=0;k<numComps;k++)
+    { // Something wrong here...
       cmplx_counter.x += G[idx_comp*numFreqs*numComps+idx_freq*numComps+k].x * // a
 	Gq[idx_particle*numFreqs*numComps+idx_freq*numComps+k].x - // c
 	-G[idx_comp*numFreqs*numComps+idx_freq*numComps+k].y * // -b (conj)
@@ -26,6 +27,7 @@ void GstarGq(cuComplex *GsGq,cuComplex *G,cuComplex *Gq,int numComps,int numFreq
 	-G[idx_comp*numFreqs*numComps+idx_freq*numComps+k].y *
 	Gq[idx_particle*numFreqs*numComps+idx_freq*numComps+k].x;
     }
+  //printf("%f + %f i",cmplx_counter.x,cmplx_counter.y);
   GsGq[idx] = cmplx_counter;
 }
 	
@@ -137,7 +139,7 @@ void magnitude2(float *absqtGq, cuComplex *qtGq, int numFreqs,int numParticles)
 
   float mag = 0.0f;
   mag = qtGq[idx].x*qtGq[idx].x + qtGq[idx].y*qtGq[idx].y;
-  absqtGq[idx] = sqrtf(mag);
+  absqtGq[idx] = mag;
 }
     
 
@@ -181,7 +183,7 @@ void norm2Gq(float *Gq2,cuComplex *Gq,int numComps,int numFreqs, int numParticle
 	Gq[idx_particle*numFreqs*numComps+idx_freq*numComps+k].y*
 	Gq[idx_particle*numFreqs*numComps+idx_freq*numComps+k].y;
     }
-  nrm2 = sqrtf(nrm2);
+  //nrm2 = sqrtf(nrm2);
   Gq2[idx] = nrm2;
 }
 

@@ -92,8 +92,10 @@ void gradient_vruj(workForGranger wa,int numComps,int numFreqs,int numParticles)
   // Compute Gsq
   makeGq<<<CFP_grid,CFP_block>>>(wa.Gsq_dev,wa.Gs_dev,wa.q_dev,numComps,numFreqs,numParticles);
 
-  calcGradient<<<CFP_grid,CFP_block>>>(wa.delF_dev,wa.Gsq_dev,wa.s_dev,wa.Gq2_dev,wa.GstarGq_dev,wa.q_dev,
-				       numComps,numFreqs,numParticles);
+  calcGradient<<<CFP_grid,CFP_block>>>(wa.delF_dev,wa.Gsq_dev,wa.s_dev,wa.Gq2_dev,wa.GsGq_dev,wa.q_dev,
+  				       numComps,numFreqs,numParticles);
+
+  projectQorth<<<CFP_grid,CFP_block>>>(wa.q_tmp,wa.q_dev,wa.delF_dev,numComps,numFreqs,numParticles);
   
   return;
 }
@@ -145,23 +147,15 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L,
   std::vector<float> q_host(params.numParticles*numComps);
   for(int k=0;k<numComps*params.numParticles;++k)
     q_host[k] = (float)((rand()%2000)/1000.0f-1.0f );
-
-  float *q_tmp;
-  cudaMalloc((void**)&q_tmp,sizeof(float)*params.numParticles*numComps);
-  cudaMemcpy(q_tmp,q_host.data(),sizeof(float)*numComps*params.numParticles,cudaMemcpyHostToDevice);
+  
+  cudaMemcpy(wa.q_tmp,q_host.data(),sizeof(float)*numComps*params.numParticles,cudaMemcpyHostToDevice);
 
   gridsize = (int)((numComps*params.numParticles+blksize-1)/blksize);
   const dim3 CP_block(blksize);
   const dim3 CP_grid(gridsize);
 
-  normalize_q<<<CP_grid,CP_block>>>(wa.q_dev,q_tmp,numComps,params.numParticles);
+  normalize_q<<<CP_grid,CP_block>>>(wa.q_dev,wa.q_tmp,numComps,params.numParticles);
 
-  cudaFree(q_tmp);
-
-
-
-  
-  
   granger_vruj(wa,numComps,params.numFreqs,params.numParticles);
 
   std::vector<cuComplex> Gq_host(numComps*params.numFreqs*params.numParticles);
@@ -197,6 +191,23 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L,
   for(int k=0;k<params.numParticles;k++)
     std::cout << absS_host[k] << std::endl;
   
+
+
+
+
+  
+  gradient_vruj(wa,numComps,params.numFreqs,params.numParticles);
+  
+
+
+  
+  std::vector<float> diffF(numComps*params.numFreqs*params.numParticles);
+  //std::vector<cuComplex> diffF(params.numFreqs*params.numParticles*numComps);
+  cudaMemcpy(diffF.data(),wa.delF_dev,sizeof(float)*numComps*params.numFreqs*params.numParticles,cudaMemcpyDeviceToHost);
+
+  for(int k=0;k<params.numParticles*params.numFreqs*numComps;k++)
+    //  std::cout << diffF[k].x << " + " << diffF[k].y << "i" << std::endl;
+    std::cout << diffF[k] << std::endl;
   exit(0);
   return;
 }

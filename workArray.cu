@@ -6,6 +6,7 @@ void allocateParams(workForGranger &workArray,int numComps,int particleBlockSize
   int numFreqs = params.numFreqs;
   int numLags = params.numLags;
   cudaMalloc((void**)&workArray.q_dev, sizeof(float)*numComps*particleBlockSize);
+  cudaMalloc((void**)&workArray.q_tmp, sizeof(float)*numComps*particleBlockSize);
   cudaMalloc((void**)&workArray.G_dev, sizeof(cuComplex)*numComps*numComps*numFreqs);
   cudaMalloc((void**)&workArray.s_dev, sizeof(cuComplex)*numFreqs*particleBlockSize);
   cudaMalloc((void**)&workArray.absqtGq_dev, sizeof(float)*numFreqs*particleBlockSize);
@@ -19,6 +20,7 @@ void allocateParams(workForGranger &workArray,int numComps,int particleBlockSize
   cudaMalloc((void**)&workArray.Gs_dev,sizeof(cuComplex)*numComps*numFreqs*numComps);
   cudaMalloc((void**)&workArray.Gsq_dev,sizeof(cuComplex)*numComps*numFreqs*particleBlockSize);
   cudaMalloc((void**)&workArray.delF_dev,sizeof(float)*numComps*numFreqs*particleBlockSize);
+  cudaMalloc((void**)&workArray.delF_proj_dev,sizeof(float)*numComps*numFreqs*particleBlockSize);
   cudaMalloc((void**)&workArray.GstarGq_dev,sizeof(cuComplex)*numFreqs*numComps*particleBlockSize);
   return;
 }
@@ -26,6 +28,7 @@ void allocateParams(workForGranger &workArray,int numComps,int particleBlockSize
 void freeWorkArray(workForGranger &workArray)
 {
   cudaFree(workArray.q_dev);
+  cudaFree(workArray.q_tmp);
   cudaFree(workArray.G_dev);
   cudaFree(workArray.s_dev);
   cudaFree(workArray.absqtGq_dev);
@@ -39,6 +42,7 @@ void freeWorkArray(workForGranger &workArray)
   cudaFree(workArray.Gs_dev);
   cudaFree(workArray.Gsq_dev);
   cudaFree(workArray.delF_dev);
+  cudaFree(workArray.delF_proj_dev);
   cudaFree(workArray.GstarGq_dev);
   
   
