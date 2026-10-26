@@ -1,50 +1,46 @@
 #include "workArray.h"
 #include "utility.h"
 #include <vector>
-void allocateParams(workForGranger &workArray,int numComps,int particleBlockSize,paramContainer params,std::vector<int> lagList,std::vector<float> AR)
+void allocateParams(workForGranger &workArray,int numComps,int particleBlockSize,paramContainer params)
 {
-  workArray.lworkVal = particleBlockSize*params.numFreqs*2*(numComps-1)*(numComps-1);
-  cudaMalloc((void**)&workArray.Qdev, sizeof(float)*particleBlockSize*numComps*numComps);
-  cudaMalloc((void**)&workArray.rotatedModels, sizeof(float)*numComps*numComps*particleBlockSize*params.numLags);
-  cudaMalloc((void**)&workArray.wArray, sizeof(float)*numComps*numComps*particleBlockSize*params.numLags);
-  cudaMalloc((void**)&workArray.Tf,sizeof(float2)*numComps*numComps*particleBlockSize*params.numFreqs);
-  cudaMalloc((void**)&workArray.Swhole,sizeof(float2)*numComps*numComps*params.numFreqs*particleBlockSize);
-  cudaMalloc(&workArray.tmp,sizeof(float2)*particleBlockSize*params.numFreqs*numComps*numComps);
-  cudaMalloc((void**)&workArray.Spartial,sizeof(float2)*(numComps-1)*(numComps-1)*params.numFreqs*particleBlockSize);
-  cudaMalloc(&workArray.d_wholeSpec,sizeof(float2)*params.numFreqs*particleBlockSize*(numComps-1)*(numComps-1));
-  cudaMalloc(&workArray.dev_W_partial,sizeof(float)*particleBlockSize*params.numFreqs*(numComps-1));
-  cudaMalloc(&workArray.dev_W_whole,sizeof(float)*particleBlockSize*params.numFreqs*(numComps-1));
-  cudaMalloc(&workArray.d_info,sizeof(int)*particleBlockSize*params.numFreqs);  
-  cudaMalloc(&workArray.d_work2,sizeof(float2)*workArray.lworkVal);
-  cudaMalloc(&workArray.det_whole,sizeof(float)*particleBlockSize*params.numFreqs);
-  cudaMalloc(&workArray.det_partial,sizeof(float)*particleBlockSize*params.numFreqs);
-  cudaMalloc(&workArray.dev_GC,sizeof(float)*particleBlockSize);
-  cudaMalloc(&workArray.lagList_DEVICE,sizeof(int)*lagList.size());
-  cudaMemcpy(workArray.lagList_DEVICE,lagList.data(),sizeof(int)*lagList.size(),cudaMemcpyHostToDevice);
-  cudaMalloc(&workArray.ARdev,sizeof(float)*AR.size());
-  cudaMemcpy(workArray.ARdev,AR.data(),sizeof(float)*AR.size(),cudaMemcpyHostToDevice);
-  
+  int numFreqs = params.numFreqs;
+  int numLags = params.numLags;
+  cudaMalloc((void**)&workArray.q_dev, sizeof(float)*numComps*particleBlockSize);
+  cudaMalloc((void**)&workArray.G_dev, sizeof(cuComplex)*numComps*numComps*numFreqs);
+  cudaMalloc((void**)&workArray.s_dev, sizeof(cuComplex)*numFreqs*particleBlockSize);
+  cudaMalloc((void**)&workArray.absqtGq_dev, sizeof(float)*numFreqs*particleBlockSize);
+  cudaMalloc((void**)&workArray.Gq_dev, sizeof(cuComplex)*numComps*numFreqs*particleBlockSize);
+  cudaMalloc((void**)&workArray.Gq2_dev, sizeof(float)*numFreqs*particleBlockSize);
+  cudaMalloc((void**)&workArray.GCvals_dev, sizeof(float)*particleBlockSize);
+  cudaMalloc((void**)&workArray.AR_dev,sizeof(float)*numComps*numComps*numLags);
+  cudaMalloc((void**)&workArray.lagList_dev,sizeof(int)*numLags);
+  cudaMalloc((void**)&workArray.gradient_dev,sizeof(float)*numComps*particleBlockSize);
+  cudaMalloc((void**)&workArray.GsGq_dev,sizeof(cuComplex)*numComps*numFreqs*particleBlockSize);
+  cudaMalloc((void**)&workArray.Gs_dev,sizeof(cuComplex)*numComps*numFreqs*numComps);
+  cudaMalloc((void**)&workArray.Gsq_dev,sizeof(cuComplex)*numComps*numFreqs*particleBlockSize);
+  cudaMalloc((void**)&workArray.delF_dev,sizeof(float)*numComps*numFreqs*particleBlockSize);
+  cudaMalloc((void**)&workArray.GstarGq_dev,sizeof(cuComplex)*numFreqs*numComps*particleBlockSize);
   return;
 }
 
 void freeWorkArray(workForGranger &workArray)
 {
-  cudaFree(workArray.Qdev);
-  cudaFree(workArray.rotatedModels);
-  cudaFree(workArray.wArray);
-  cudaFree(workArray.Tf);
-  cudaFree(workArray.Swhole);
-  cudaFree(workArray.tmp);
-  cudaFree(workArray.Spartial);
-  cudaFree(workArray.d_wholeSpec);
-  cudaFree(workArray.dev_W_partial);
-  cudaFree(workArray.dev_W_whole);
-  cudaFree(workArray.d_info);
-  cudaFree(workArray.d_work2);
-  cudaFree(workArray.det_whole);
-  cudaFree(workArray.det_partial);
-  cudaFree(workArray.dev_GC);
-  cudaFree(workArray.lagList_DEVICE);
-  cudaFree(workArray.ARdev);
+  cudaFree(workArray.q_dev);
+  cudaFree(workArray.G_dev);
+  cudaFree(workArray.s_dev);
+  cudaFree(workArray.absqtGq_dev);
+  cudaFree(workArray.Gq_dev);
+  cudaFree(workArray.Gq2_dev);
+  cudaFree(workArray.GCvals_dev);
+  cudaFree(workArray.AR_dev);
+  cudaFree(workArray.lagList_dev);
+  cudaFree(workArray.gradient_dev);
+  cudaFree(workArray.GsGq_dev);
+  cudaFree(workArray.Gs_dev);
+  cudaFree(workArray.Gsq_dev);
+  cudaFree(workArray.delF_dev);
+  cudaFree(workArray.GstarGq_dev);
+  
+  
   return;
 }

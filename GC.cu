@@ -6,7 +6,8 @@
 #include <math.h>
 #include <cuda_runtime.h>
 #include <cusolverDn.h>
-#include "kernels.h"
+//#include "kernels.h"
+#include "kernels_vruj.h"
 #include <complex>
 #include <chrono>
 #include <cblas.h>
@@ -19,80 +20,43 @@
 #include "dataCompute.h"
 #include <cuComplex.h>
 
-void granger_vruj(float *q, cuComplex *Tf ,float *GCvals,int numComps, int numFreqs,int numParticles)
+void granger_vruj(workForGranger wa,int numComps, int numFreqs,int numParticles)
 {
   // Input q is numComps x numParticles - on the device
   // Input Tf is (numComps x numFreqs) x numComps - on the device
   // Output GCvals is numParticles - on the device
   // worker Gq is numFreqs x numComps x numParticles
   // worker qtGq is numFreqs x numParticles
-
-  // These creations should take place outside of the loop containing this function.
-  // Once this works I will move them. 
-  cuComplex *qtGq;
-  cudaMalloc((void**)&qtGq,sizeof(cuComplex)*numFreqs*numParticles);
-  float *absqtGq;
-  cudaMalloc((void**)&absqtGq,sizeof(float)*numFreqs*numParticles);
-  cuComplex *Gq;
-  cudaMalloc((void**)&Gq,sizeof(cuComplex)*numFreqs*numParticles*numComps);
-  float *Gq2;
-  cudaMalloc((void**)&Gq2,sizeof(float)*numFreqs*numParticles);
-  float *GCvals;
-  cudaMalloc((void**)&GCvals,sizeof(float)*numParticles);
-
   
   int blksize = 1024;
-
-  grdsize = (int)(numParticles*numFreqs+blksize-1)/blksize;
-  const dim3 qtGqblockSize(blksize);
-  const dim3 qtGqgridSize(grdsize);
   
-
-  cublasHandle_t cublasH = 0;
-  cublasCreate(&cublasH);
-  
-  
-  // Compute Gq
-  const dim3 GqblockSize(blksize);
-  grdSize = (int)((numParticles*numFreqs*numComps+blksize-1)/blksize);
-  const dim3 GqgridSize(grdSize);
-  makeGq<<<GqblockSize,GqgridSize>>>(Gq,G,q,numComps,numFreqs,numParticles);
-
-  // Compute the norm of Gq
-  const dim3 Gq2blockSize(blksize);
+  int grdsize = (int)((numParticles*numFreqs*numComps+blksize-1)/blksize);
+  const dim3 CFP_block(blksize);
+  const dim3 CFP_grid(grdsize);
+  grdsize = (int)((numParticles+blksize-1)/blksize);
+  const dim3 P_block(blksize);
+  const dim3 P_grid(grdsize);
   grdsize = (int)((numParticles*numFreqs+blksize-1)/blksize);
-  const dim3 Gq2gridSize(grdsize);
-  norm2Gq<<<Gq2blockSize,Gq2gridSize>>>(Gq2,Gq,numComps,numFreqs,numParticles);
+  const dim3 FP_block(blksize);
+  const dim3 FP_grid(grdsize);
+
+  
+  makeGq<<<CFP_grid,CFP_block>>>(wa.Gq_dev,wa.G_dev,wa.q_dev,numComps,numFreqs,numParticles);
+
+  norm2Gq<<<FP_grid,FP_block>>>(wa.Gq2_dev,wa.Gq_dev,numComps,numFreqs,numParticles);
   
   // Compute qtGq   
-  qTGq<<<qtGqgridSize,qtGqblockSize>>>(qtGq,q,Gq,numComps,numFreqs,numParticles);
+  qTGq<<<FP_grid,FP_block>>>(wa.s_dev,wa.q_dev,wa.Gq_dev,numComps,numFreqs,numParticles);
   // Take the absolute value (so that the result is a float)
-  magnitude<<<qtGqBlockSize,qtGqGridSize>>>(absqtGq,qtGq,numFreqs,numParticles);  
+  magnitude2<<<FP_grid,FP_block>>>(wa.absqtGq_dev,wa.s_dev,numFreqs,numParticles);  
   // Compute the log(Gq2/qtGq)
-  computeGC<<<cGCgridSize,cGCblockSize>>>(GCvals,Gq2,absqtGq,numFreqs,numParticles);
+  computeGC<<<P_grid,P_block>>>(wa.GCvals_dev,wa.Gq2_dev,wa.absqtGq_dev,numFreqs,numParticles);
 
-  // Do a copy here, but it is only temporary. Everything will be moved out so
-  // everything stays on the GPU for the duration of the "peel".
-  cudaFree(qtGq);
-  cudaFree(absqtGq);
-  cudaFree(Gq);
-  cudaFree(Gq2);
-  cudaFree(GCvals);
-
+  return;
 }
 
-gradient_vruj(float *gradient, cuComplex *G,float *q,int numComps,int numFreqs,int numParticles);
+void gradient_vruj(workForGranger wa,int numComps,int numFreqs,int numParticles)
 {
-  cuComplex *s;
-  cudaMalloc((void**)&s,sizeof(cuComplex)*numFreqs*numParticles);
-  float *absqtGq;
-  cudaMalloc((void**)&absqtGq,sizeof(float)*numFreqs*numParticles);
-  cuComplex *Gq;
-  cudaMalloc((void**)&Gq,sizeof(cuComplex)*numFreqs*numParticles*numComps);
-  float *Gq2;
-  cudaMalloc((void**)&Gq2,sizeof(float)*numFreqs*numParticles);
-  float *GCvals;
-  cudaMalloc((void**)&GCvals,sizeof(float)*numParticles);
 
   // numComps * numFreqs * numParticles
   int blksize = 1024;
@@ -102,42 +66,140 @@ gradient_vruj(float *gradient, cuComplex *G,float *q,int numComps,int numFreqs,i
 
   // numParticles*numFreqs
   const dim3 FP_block(blksize);
-  grdsize = (int)((numFreqs*numParticles+blksize-1)/blksize);
-  const dim3 FP_grid(grdsize);
+  grdSize = (int)((numFreqs*numParticles+blksize-1)/blksize);
+  const dim3 FP_grid(grdSize);
 
   // (numComps*numFreqs)*numComps
   const dim3 CCF_block(blksize);
-  grdsize = (int)((numFreqs*numComps*numComps+blksize-1)/blksize);
-  const dim3 CCF_grid(grdsize);
-
-
-  // cublas handle
-  cublasHandle_t cublasH = 0;
-  cublasCreate(&cublasH);
+  grdSize = (int)((numFreqs*numComps*numComps+blksize-1)/blksize);
+  const dim3 CCF_grid(grdSize);
 
   // Compute Gq
-  makeGq<<<CFP_grid,CFP_block>>>(Gq,G,q,numComps,numFreqs,numParticles);
+  makeGq<<<CFP_grid,CFP_block>>>(wa.Gq_dev,wa.G_dev,wa.q_dev,numComps,numFreqs,numParticles);
   
   // Compute the norm of Gq
-  norm2Gq<<<FP_grid,FP_block>>>(Gq2,Gq,numComps,numFreqs,numParticles);
+  norm2Gq<<<FP_grid,FP_block>>>(wa.Gq2_dev,wa.Gq_dev,numComps,numFreqs,numParticles);
   
   // Compute (G*)Gq
-  GstarGq<<<CFP_grid,CFP_block>>>(GsGq,G,Gq,numComps,numFreqs,numParticles);
+  GstarGq<<<CFP_grid,CFP_block>>>(wa.GsGq_dev,wa.G_dev,wa.Gq_dev,numComps,numFreqs,numParticles);
 
-  // Compute conj(s) 
-  conjS<<<FP_grid,FP_block>>>(sconj,q,Gq,numComps,numFreqs,numParticles);
-  // |s|^2
-  magnitude2<<<FP_grid,FP_block>>>(smag2,sconj,numFreqs,numParticles);
+  // Compute s 
+  qTGq<<<FP_grid,FP_block>>>(wa.s_dev,wa.q_dev,wa.Gq_dev,numComps,numFreqs,numParticles);
 
   // Compute Gs=(G^T+G)/2
-  GTplusG<<<CCF_grid,CCF_block>>>(Gs,G,numComps,numFreqs);
+  GTplusG<<<CCF_grid,CCF_block>>>(wa.Gs_dev,wa.G_dev,numComps,numFreqs);
 
   // Compute Gsq
-  makeGq<<<CFP_grid,CFP_block>>>(Gsq,Gs,q,numComps,numFreqs,numParticles);
+  makeGq<<<CFP_grid,CFP_block>>>(wa.Gsq_dev,wa.Gs_dev,wa.q_dev,numComps,numFreqs,numParticles);
 
-  calcGradient<<<CFP_grid,CFP_block>>>(delF,Gsq,sconj,Gq2,GstarGq,q,numComps,numFreqs,numParticles);
+  calcGradient<<<CFP_grid,CFP_block>>>(wa.delF_dev,wa.Gsq_dev,wa.s_dev,wa.Gq2_dev,wa.GstarGq_dev,wa.q_dev,
+				       numComps,numFreqs,numParticles);
+  
+  return;
+}
+
+void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L,
+		 dataClass<float> dataArray,paramContainer params,int numComps)
+{
+  int id;
+  //size_t freemem,total;
+  cudaGetDevice(&id); // I am not sure where I use this.
+  // Random seed
+  srand((unsigned)time(0));
+  // Create MVAR model for the data using the lags in params.
+  MVAR<float> model = mkARGPU(dataArray,params);
+  
+
+  // Some abbreviations
+  int maxLag = *std::max_element(model.lagList.begin(),model.lagList.end());
+  int epochAdj = dataArray.getEpochPoints() - maxLag;
+  // Put the residuals in a container and get the PC transformation matrix,
+  // use it to rotate the model to have orthonormal residuals
+  // (which there is no need to compute). 
+  dataClass<float> residuals(epochAdj,dataArray.getNumComps(),model.R,dataArray.getSampRate());
+  std::vector<float> Dmat = PCA(residuals);
+  
+  MVAR<float> rModel = rotate_model(model,Dmat);
+  L.resize(Dmat.size());
+  std::copy(Dmat.begin(),Dmat.end(),L.begin());
+
+  workForGranger wa;
+  allocateParams(wa,numComps,params.numParticles,params);
+
+  // From here, I would like to create the transfer function
+  int blksize = 1024;
+  int gridsize = (int)((numComps*numComps*params.numFreqs+blksize-1)/blksize);
+  const dim3 CCF_block(blksize);
+  const dim3 CCF_grid(gridsize);
+
+  cudaMemcpy(wa.AR_dev,rModel.A.data(),sizeof(float)*params.numLags*numComps*numComps,cudaMemcpyHostToDevice);
+  cudaMemcpy(wa.lagList_dev,rModel.lagList.data(),sizeof(int)*params.numLags,cudaMemcpyHostToDevice);
+  
+  float dt = 1.0/float(params.sampRate);
+
+  // Compute the array of transfer functions
+  G_vruj<<<CCF_grid,CCF_block>>>(wa.G_dev,wa.AR_dev,wa.lagList_dev,numComps,params.freqLo,
+	    params.freqHi,params.numFreqs,params.numLags,dt);
+  
+  // random q's
+  std::vector<float> q_host(params.numParticles*numComps);
+  for(int k=0;k<numComps*params.numParticles;++k)
+    q_host[k] = (float)((rand()%2000)/1000.0f-1.0f );
+
+  float *q_tmp;
+  cudaMalloc((void**)&q_tmp,sizeof(float)*params.numParticles*numComps);
+  cudaMemcpy(q_tmp,q_host.data(),sizeof(float)*numComps*params.numParticles,cudaMemcpyHostToDevice);
+
+  gridsize = (int)((numComps*params.numParticles+blksize-1)/blksize);
+  const dim3 CP_block(blksize);
+  const dim3 CP_grid(gridsize);
+
+  normalize_q<<<CP_grid,CP_block>>>(wa.q_dev,q_tmp,numComps,params.numParticles);
+
+  cudaFree(q_tmp);
+
+
+
   
   
+  granger_vruj(wa,numComps,params.numFreqs,params.numParticles);
+
+  std::vector<cuComplex> Gq_host(numComps*params.numFreqs*params.numParticles);
+  cudaMemcpy(Gq_host.data(),wa.Gq_dev,sizeof(cuComplex)*numComps*params.numFreqs*params.numParticles,
+	     cudaMemcpyDeviceToHost);
+  std::cout << std::endl;
+  for(int row=0;row<numComps;row++)
+    std::cout << Gq_host[row].x << " + " << Gq_host[row].y << "i" << std::endl;
+	
+
+  std::vector<float> Gq2_host(params.numParticles*params.numFreqs);
+  cudaMemcpy(Gq2_host.data(),wa.Gq2_dev,sizeof(float)*params.numFreqs*params.numParticles,cudaMemcpyDeviceToHost);
+
+  std::cout << Gq2_host[0] << std::endl;
+  std::cout << std::endl;
+  
+  
+  std::vector<float> GCvals_host(params.numParticles);
+  cudaMemcpy(GCvals_host.data(),wa.GCvals_dev,sizeof(float)*params.numParticles,cudaMemcpyDeviceToHost);
+
+  for(int k=0;k<numComps;k++)
+    std::cout << GCvals_host[k] << std::endl;
+
+
+  std::vector<cuComplex> s_host(params.numParticles*params.numFreqs);
+  cudaMemcpy(s_host.data(),wa.s_dev,sizeof(cuComplex)*params.numFreqs*params.numParticles,cudaMemcpyDeviceToHost);
+
+  std::cout << s_host[0].x << " + " << s_host[0].y << "i" << std::endl;
+
+  std::vector<float> absS_host(params.numParticles*params.numFreqs);
+  cudaMemcpy(absS_host.data(),wa.absqtGq_dev,sizeof(float)*params.numFreqs*params.numParticles,cudaMemcpyDeviceToHost);
+
+  for(int k=0;k<params.numParticles;k++)
+    std::cout << absS_host[k] << std::endl;
+  
+  exit(0);
+  return;
+}
   
 
 
