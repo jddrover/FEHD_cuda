@@ -158,56 +158,22 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L,
 
   granger_vruj(wa,numComps,params.numFreqs,params.numParticles);
 
-  std::vector<cuComplex> Gq_host(numComps*params.numFreqs*params.numParticles);
-  cudaMemcpy(Gq_host.data(),wa.Gq_dev,sizeof(cuComplex)*numComps*params.numFreqs*params.numParticles,
-	     cudaMemcpyDeviceToHost);
-  std::cout << std::endl;
-  for(int row=0;row<numComps;row++)
-    std::cout << Gq_host[row].x << " + " << Gq_host[row].y << "i" << std::endl;
-	
-
-  std::vector<float> Gq2_host(params.numParticles*params.numFreqs);
-  cudaMemcpy(Gq2_host.data(),wa.Gq2_dev,sizeof(float)*params.numFreqs*params.numParticles,cudaMemcpyDeviceToHost);
-
-  std::cout << Gq2_host[0] << std::endl;
-  std::cout << std::endl;
-  
-  
-  std::vector<float> GCvals_host(params.numParticles);
-  cudaMemcpy(GCvals_host.data(),wa.GCvals_dev,sizeof(float)*params.numParticles,cudaMemcpyDeviceToHost);
-
-  for(int k=0;k<numComps;k++)
-    std::cout << GCvals_host[k] << std::endl;
-
-
-  std::vector<cuComplex> s_host(params.numParticles*params.numFreqs);
-  cudaMemcpy(s_host.data(),wa.s_dev,sizeof(cuComplex)*params.numFreqs*params.numParticles,cudaMemcpyDeviceToHost);
-
-  std::cout << s_host[0].x << " + " << s_host[0].y << "i" << std::endl;
-
-  std::vector<float> absS_host(params.numParticles*params.numFreqs);
-  cudaMemcpy(absS_host.data(),wa.absqtGq_dev,sizeof(float)*params.numFreqs*params.numParticles,cudaMemcpyDeviceToHost);
-
-  for(int k=0;k<params.numParticles;k++)
-    std::cout << absS_host[k] << std::endl;
-  
-
-
-
-
-  
   gradient_vruj(wa,numComps,params.numFreqs,params.numParticles);
   
 
 
-  
-  std::vector<float> diffF(numComps*params.numFreqs*params.numParticles);
+  // q hasn't changed.
+  std::vector<float> diffF(numComps*params.numParticles);
   //std::vector<cuComplex> diffF(params.numFreqs*params.numParticles*numComps);
-  cudaMemcpy(diffF.data(),wa.delF_dev,sizeof(float)*numComps*params.numFreqs*params.numParticles,cudaMemcpyDeviceToHost);
+  cudaMemcpy(diffF.data(),wa.q_tmp,sizeof(float)*numComps*params.numParticles,cudaMemcpyDeviceToHost);
 
-  for(int k=0;k<params.numParticles*params.numFreqs*numComps;k++)
+  float sum = 0.0;
+
+  for(int k=0;k<numComps;k++)
+    sum += q_host[k]*diffF[k+params.numFreqs*numComps];
     //  std::cout << diffF[k].x << " + " << diffF[k].y << "i" << std::endl;
-    std::cout << diffF[k] << std::endl;
+    //std::cout << diffF[k] << std::endl;
+  std::cout << sum << std::endl;
   exit(0);
   return;
 }
