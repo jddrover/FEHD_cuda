@@ -276,12 +276,24 @@ void projectQorth(float *qorth,float *q,float *delF,int numComps,int numFreqs,in
 }
 
 __global__
-void parseTable(int numParticles)
+void parseTable(float *q_out,float *GCtable,float *qStore,int numComps,int numParticles,int numCandidates)
 {
 
   const int idx = threadIdx.x + blockDim.x*blockIdx.x;
   if(idx >= numParticles){return;}
 
-  printf("%d",idx);
-  
+  int bestIndx = 0;
+  for(int k=1;k<numCandidates;k++)
+    {
+      if(GCtable[idx*numCandidates+k] < GCtable[idx*numCandidates])
+	{
+	  GCtable[idx*numCandidates] = GCtable[idx*numCandidates+k];
+	  bestIndx = k;
+	}
+    }
+
+  for(int k=0;k<numComps;k++)
+      q_out[idx*numComps+k] = qStore[bestIndx*numComps*numParticles+idx*numComps+k];
+
+  return;  
 }

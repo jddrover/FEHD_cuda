@@ -148,7 +148,8 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L,
   std::vector<float> q_host(params.numParticles*numComps);
   for(int k=0;k<numComps*params.numParticles;++k)
     q_host[k] = (float)((rand()%2000)/1000.0f-1.0f );
-  
+
+  std::vector<float> q_host_tmp(q_host);
   cudaMemcpy(wa.q_tmp,q_host.data(),sizeof(float)*numComps*params.numParticles,cudaMemcpyHostToDevice);
 
   gridsize = (int)((numComps*params.numParticles+blksize-1)/blksize);
@@ -157,7 +158,7 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L,
 
   normalize_q<<<CP_grid,CP_block>>>(wa.q_dev,wa.q_tmp,numComps,params.numParticles);
     
-  std::vector<float> p = {0.0,0.0001,0.001,0.01,0.1};
+  std::vector<float> p = {0.0,0.000,0.00,0.0,0.0};
 
   // Make a GC table numPoint x numParticles
   float *GCtable;
@@ -188,18 +189,18 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L,
       granger_vruj(wa,numComps,params.numFreqs,params.numParticles);
       cublasScopy(cublasH,numComps*params.numParticles,
 		  wa.q_dev,1,qStore+iter*numComps*params.numParticles,1);
-      cublasScopy(cublasH,params.numParticles,wa.GCvals_dev,1,GCtable+iter,p.size());
+      cublasScopy(cublasH,params.numParticles,wa.GCvals_dev,1,GCtable+iter,p.size());      
     }
-
-  std::vector<float> GCtable_host(params.numParticles*p.size());
-  cudaMemcpy(GCtable_host.data(),GCtable,sizeof(float)*params.numParticles*p.size(),
-  	     cudaMemcpyDeviceToHost);
-  for(int k=0;k<params.numParticles*5;k++)
-    std::cout << GCtable_host[k] << std::endl;
+  
+  parseTable<<<P_grid,P_block>>>(wa.q_dev,GCtable,qStore,numComps,params.numFreqs,params.numParticles);
+  cudaMemcpy(q_host.data(),wa.q_dev,sizeof(float)*numComps*params.numParticles,
+	     cudaMemcpyDeviceToHost);
+  for(int k=0;k<numComps*params.numParticles;k++)
+    std::cout << q_host[k] << " " << q_host_tmp[k] << std::endl;
+  
   //cudaDeviceSynchronize();
-  std::cout << "Here" << std::endl;
-  parseTable<<<P_grid,P_block>>>(params.numParticles);
-  std::cout << "Here" << std::endl;
+  
+
 
   
   exit(0);
