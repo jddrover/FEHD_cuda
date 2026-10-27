@@ -3,7 +3,7 @@
 #include <cuComplex.h>
 
 __global__
-void GstarGq(cuComplex *GsGq,cuComplex *G,cuComplex *Gq,int numComps,int numFreqs,int numParticles)
+void GstarGq(cuComplex *GsGq,const cuComplex *G,const cuComplex *Gq,int numComps,int numFreqs,int numParticles)
 {
   // Calculate G*Gq 
 
@@ -32,7 +32,7 @@ void GstarGq(cuComplex *GsGq,cuComplex *G,cuComplex *Gq,int numComps,int numFreq
 }
 	
 __global__
-void makeGq(cuComplex *Gq,cuComplex *G,float *q,int numComps,int numFreqs,int numParticles)
+void makeGq(cuComplex *Gq,const cuComplex *G,const float *q,int numComps,int numFreqs,int numParticles)
 {
   // Calculate Gq
   
@@ -53,7 +53,8 @@ void makeGq(cuComplex *Gq,cuComplex *G,float *q,int numComps,int numFreqs,int nu
 
 
 __global__
-void calcGradient(float *delF,cuComplex *Gsq,cuComplex *sconj,float *Gq2,cuComplex *GstarGq,float *q,
+void calcGradient(float *delF,const cuComplex *Gsq,const cuComplex *s,const float *Gq2,
+		  const cuComplex *GstarGq,const float *q,
 		  int numComps,int numFreqs,int numParticles)
 {
   // Compute the gradient at q (not projected onto sphere surface).
@@ -73,17 +74,17 @@ void calcGradient(float *delF,cuComplex *Gsq,cuComplex *sconj,float *Gq2,cuCompl
   // Second term
   float delF_element2 = 0.0f;
 
-  delF_element2 = 4.0*(Gsq[idx].x*sconj[idx_particle*numFreqs+idx_freq].x -
-		       Gsq[idx].y*sconj[idx_particle*numFreqs+idx_freq].y) /
-    (sconj[idx_particle*numFreqs+idx_freq].x*sconj[idx_particle*numFreqs+idx_freq].x +
-     sconj[idx_particle*numFreqs+idx_freq].y*sconj[idx_particle*numFreqs+idx_freq].y);
+  delF_element2 = 4.0*(Gsq[idx].x*s[idx_particle*numFreqs+idx_freq].x -
+		       Gsq[idx].y*s[idx_particle*numFreqs+idx_freq].y) /
+    (s[idx_particle*numFreqs+idx_freq].x*s[idx_particle*numFreqs+idx_freq].x +
+     s[idx_particle*numFreqs+idx_freq].y*s[idx_particle*numFreqs+idx_freq].y);
 
   delF[idx] = delF_element1-delF_element2;
   
 }
 
 __global__
-void GTplusG(cuComplex *GTpGd2,cuComplex *G,int numComps,int numFreqs)
+void GTplusG(cuComplex *GTpGd2,const cuComplex *G,int numComps,int numFreqs)
 {
   // Compute (G^T+G)/2
   const int idx = threadIdx.x+blockDim.x*blockIdx.x;
@@ -104,7 +105,7 @@ void GTplusG(cuComplex *GTpGd2,cuComplex *G,int numComps,int numFreqs)
 
 
 __global__
-void qTGq(cuComplex *qtGq,float *q,cuComplex *Gq,int numComps,int numFreqs,int numParticles)
+void qTGq(cuComplex *qtGq,const float *q,const cuComplex *Gq,int numComps,int numFreqs,int numParticles)
 {
   // Multiplies (dot product) q, as a row vector, times the previously computed Gq. 
 
@@ -131,7 +132,7 @@ void qTGq(cuComplex *qtGq,float *q,cuComplex *Gq,int numComps,int numFreqs,int n
 
 
 __global__
-void magnitude2(float *absqtGq, cuComplex *qtGq, int numFreqs,int numParticles)
+void magnitude2(float *absqtGq, const cuComplex *qtGq, int numFreqs,int numParticles)
 {
   const int idx = threadIdx.x+blockDim.x*blockIdx.x;
 
@@ -144,7 +145,7 @@ void magnitude2(float *absqtGq, cuComplex *qtGq, int numFreqs,int numParticles)
     
 
 __global__
-void normalize_q(float *qout,float *q, int numComps,int numParticles)
+void normalize_q(float *qout,const float *q, int numComps,int numParticles)
 {
   // Scales a bunch of q's to unit length
 
@@ -272,4 +273,15 @@ void projectQorth(float *qorth,float *q,float *delF,int numComps,int numFreqs,in
     }
 
   qorth[idx] = summer;
+}
+
+__global__
+void parseTable(int numParticles)
+{
+
+  const int idx = threadIdx.x + blockDim.x*blockIdx.x;
+  if(idx >= numParticles){return;}
+
+  printf("%d",idx);
+  
 }

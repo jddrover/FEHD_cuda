@@ -95,7 +95,7 @@ void gradient_vruj(workForGranger wa,int numComps,int numFreqs,int numParticles)
   calcGradient<<<CFP_grid,CFP_block>>>(wa.delF_dev,wa.Gsq_dev,wa.s_dev,wa.Gq2_dev,wa.GsGq_dev,wa.q_dev,
   				       numComps,numFreqs,numParticles);
 
-  projectQorth<<<CFP_grid,CFP_block>>>(wa.q_tmp,wa.q_dev,wa.delF_dev,numComps,numFreqs,numParticles);
+  projectQorth<<<CFP_grid,CFP_block>>>(wa.delF_proj_dev,wa.q_dev,wa.delF_dev,numComps,numFreqs,numParticles);
 
   cudaDeviceSynchronize();
   return;
@@ -156,43 +156,50 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L,
   const dim3 CP_grid(gridsize);
 
   normalize_q<<<CP_grid,CP_block>>>(wa.q_dev,wa.q_tmp,numComps,params.numParticles);
-
-  
-  //granger_vruj(wa,numComps,params.numFreqs,params.numParticles);
-      
-  
     
-  std::vector<float> p = {0.0001,0.001,0.01,0.1};
+  std::vector<float> p = {0.0,0.0001,0.001,0.01,0.1};
 
+  // Make a GC table numPoint x numParticles
+  float *GCtable;
+  cudaMalloc((void**)&GCtable,sizeof(float)*p.size()*params.numParticles);
+  float *qStore;
+  cudaMalloc((void**)&qStore,sizeof(float)*p.size()*params.numParticles*numComps);
+  
   cublasHandle_t cublasH = 0;
   cublasCreate(&cublasH);
+
+  gridsize = (int)((params.numParticles+blksize-1)/blksize);
+  const dim3 P_block(blksize);
+  const dim3 P_grid(gridsize);
   
-  std::vector<float> diffF(numComps*params.numParticles);
+  gradient_vruj(wa,numComps,params.numFreqs,params.numParticles);
+  
+  std::vector<float> diffF(params.numParticles);
 
 
   for(int iter=0;iter<p.size();iter++)
     {
       float alpha = -p[iter];
-      cublasSaxpy(cublasH,numComps*params.numParticles,&alpha,wa.q_tmp,1,wa.q_dev,1);
-      // Scale q here.
-      cudaDeviceSynchronize();
-      gradient_vruj(wa,numComps,params.numFreqs,params.numParticles);
-      cudaMemcpy(diffF.data(),wa.q_tmp,sizeof(float)*numComps*params.numParticles,cudaMemcpyDeviceToHost);
 
-      float sum=0.0f;
-      for(int k=0;k<numComps;k++)
-	{
-	  sum += q_host[k+numComps]*diffF[k+params.numFreqs*numComps];
-	  std::cout << diffF[k+params.numFreqs*numComps] << std::endl;
-	}
-     
-      std::cout << sum << std::endl;
+      // Copy, move, scale
+      cublasScopy(cublasH,numComps*params.numParticles,wa.q_dev,1,wa.q_tmp,1);
+      cublasSaxpy(cublasH,numComps*params.numParticles,&alpha,wa.delF_proj_dev,1,wa.q_tmp,1);
+      normalize_q<<<CP_grid,CP_block>>>(wa.q_dev,wa.q_tmp,numComps,params.numParticles);
+      granger_vruj(wa,numComps,params.numFreqs,params.numParticles);
+      cublasScopy(cublasH,numComps*params.numParticles,
+		  wa.q_dev,1,qStore+iter*numComps*params.numParticles,1);
+      cublasScopy(cublasH,params.numParticles,wa.GCvals_dev,1,GCtable+iter,p.size());
     }
-      
-  // q hasn't changed.
-  
-  //std::vector<cuComplex> diffF(params.numFreqs*params.numParticles*numComps);
-  
+
+  std::vector<float> GCtable_host(params.numParticles*p.size());
+  cudaMemcpy(GCtable_host.data(),GCtable,sizeof(float)*params.numParticles*p.size(),
+  	     cudaMemcpyDeviceToHost);
+  for(int k=0;k<params.numParticles*5;k++)
+    std::cout << GCtable_host[k] << std::endl;
+  //cudaDeviceSynchronize();
+  std::cout << "Here" << std::endl;
+  parseTable<<<P_grid,P_block>>>(params.numParticles);
+  std::cout << "Here" << std::endl;
 
   
   exit(0);
