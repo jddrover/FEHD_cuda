@@ -207,6 +207,7 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L,
 	  float alpha = -p[piter];
 
 	  // Copy, move, scale
+	  cudaDeviceSynchronize();
 	  cublasScopy(cublasH,numComps*params.numParticles,q_base,1,wa.q_tmp,1);
 	  cublasSaxpy(cublasH,numComps*params.numParticles,&alpha,wa.delF_proj_dev,1,wa.q_tmp,1);
 	  normalize_q<<<CP_grid,CP_block>>>(wa.q_dev,wa.q_tmp,numComps,params.numParticles);
@@ -218,11 +219,12 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L,
 	}
   
       parseTable<<<P_grid,P_block>>>(wa.q_dev,GCtable,qStore,numComps,params.numParticles,p.size());
-      cublasIsamin(cublasH,params.numParticles,GCtable,p.size(),&minIndx);
-      minIndx = minIndx - 1; // Claude's first win, if it works.
-      cudaMemcpy(&val,GCtable+p.size()*minIndx,sizeof(float),cudaMemcpyDeviceToHost);
-      std::cout << "Iteration: " << iter << " Particle: " << minIndx <<
-	" Value: " << val << std::endl;
+      cudaDeviceSynchronize();
+      //cublasIsamin(cublasH,params.numParticles,GCtable,p.size(),&minIndx);
+      //minIndx = minIndx - 1; // Claude's first win, if it works.
+      //cudaMemcpy(&val,GCtable+p.size()*minIndx,sizeof(float),cudaMemcpyDeviceToHost);
+      //std::cout << "Iteration: " << iter << " Particle: " << minIndx <<
+      //	" Value: " << val << std::endl;
     }
 
   // Determine the minimum granger causality value
@@ -232,6 +234,7 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L,
   std::vector<float> q_best(numComps);
   cudaMemcpy(q_best.data(),wa.q_dev+minIndx*numComps,sizeof(float)*numComps,
 	     cudaMemcpyDeviceToHost);
+  cudaMemcpy(&val,GCtable+p.size()*minIndx,sizeof(float),cudaMemcpyDeviceToHost);
   // bookmark  
   std::cout << "Minimum Value = " << val << " particle = " << minIndx << std::endl;
   
