@@ -291,7 +291,7 @@ void parseTable(float *q_out,float *GCtable,float *qStore,int numComps,int numPa
 	}
     }
   
-  printf("BI = %d, IDX = %d\n",bestIndx,idx);
+  //printf("BI = %d, IDX = %d\n",bestIndx,idx);
   for(int k=0;k<numComps;k++)
     q_out[idx*numComps+k] = qStore[bestIndx*numComps*numParticles+idx*numComps+k];
   

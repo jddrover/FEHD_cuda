@@ -136,7 +136,7 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L,
   allocateParams(wa,numComps,params.numParticles,params);
 
   // From here, I would like to create the transfer function
-  int blksize = 1024;
+  int blksize = 768;
   int gridsize = (int)((numComps*numComps*params.numFreqs+blksize-1)/blksize);
   const dim3 CCF_block(blksize);
   const dim3 CCF_grid(gridsize);
@@ -169,7 +169,7 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L,
   cudaMemcpy(q_host_tmp.data(),wa.q_dev,sizeof(float)*numComps*params.numParticles,
   	     cudaMemcpyDeviceToHost);
 
-  std::vector<float> p = {0.0,0.0001,0.001,0.01,0.05};
+  std::vector<float> p = {0.0,0.0001,0.01,0.05,0.5};
 
   // Make a GC table numPoint x numParticles
   float *GCtable;
@@ -190,33 +190,51 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L,
 
   float *q_base;
   cudaMalloc((void**)&q_base,sizeof(float)*numComps*params.numParticles);
-  cublasScopy(cublasH,numComps*params.numParticles,wa.q_dev,1,q_base,1);
-  
-  for(int iter=0;iter<p.size();iter++)
-    {
-      float alpha = -p[iter];
 
-      // Copy, move, scale
-      // Things are getting confused here.
-      cublasScopy(cublasH,numComps*params.numParticles,q_base,1,wa.q_tmp,1);
-      // This is not right - The gradient needs to be computed over frequencies.
-      cublasSaxpy(cublasH,numComps*params.numParticles,&alpha,wa.delF_proj_dev,1,wa.q_tmp,1);
-      normalize_q<<<CP_grid,CP_block>>>(wa.q_dev,wa.q_tmp,numComps,params.numParticles);
-      granger_vruj(wa,numComps,params.numFreqs,params.numParticles);
-      cublasScopy(cublasH,numComps*params.numParticles,
-		  wa.q_dev,1,qStore+iter*numComps*params.numParticles,1);
-      cublasScopy(cublasH,params.numParticles,wa.GCvals_dev,1,GCtable+iter,p.size());
+  int numIts = 100;
+  int minIndx;
+  int storeIndx;
+  float val;
+  float val2;
+  for(int iter = 0;iter<numIts;iter++)
+    {      
+      cublasScopy(cublasH,numComps*params.numParticles,wa.q_dev,1,q_base,1);
       cudaDeviceSynchronize();
-    }
-  
-  parseTable<<<P_grid,P_block>>>(wa.q_dev,GCtable,qStore,numComps,params.numParticles,p.size());
-  cudaDeviceSynchronize();
-  cudaMemcpy(q_host.data(),wa.q_dev,sizeof(float)*numComps*params.numParticles,
-	     cudaMemcpyDeviceToHost);
-  for(int k=0;k<numComps;k++)
-    std::cout << q_host[k] << " " << q_host_tmp[k] << std::endl;
-  
+      gradient_vruj(wa,numComps,params.numFreqs,params.numParticles);
+      
+      for(int piter=0;piter<p.size();piter++)
+	{
+	  float alpha = -p[piter];
 
+	  // Copy, move, scale
+	  cublasScopy(cublasH,numComps*params.numParticles,q_base,1,wa.q_tmp,1);
+	  cublasSaxpy(cublasH,numComps*params.numParticles,&alpha,wa.delF_proj_dev,1,wa.q_tmp,1);
+	  normalize_q<<<CP_grid,CP_block>>>(wa.q_dev,wa.q_tmp,numComps,params.numParticles);
+	  granger_vruj(wa,numComps,params.numFreqs,params.numParticles);
+	  cublasScopy(cublasH,numComps*params.numParticles,
+		      wa.q_dev,1,qStore+piter*numComps*params.numParticles,1);
+	  cublasScopy(cublasH,params.numParticles,wa.GCvals_dev,1,GCtable+piter,p.size());
+	  cudaDeviceSynchronize();
+	}
+  
+      parseTable<<<P_grid,P_block>>>(wa.q_dev,GCtable,qStore,numComps,params.numParticles,p.size());
+      cublasIsamin(cublasH,params.numParticles,GCtable,p.size(),&minIndx);
+      minIndx = minIndx - 1; // Claude's first win, if it works.
+      cudaMemcpy(&val,GCtable+p.size()*minIndx,sizeof(float),cudaMemcpyDeviceToHost);
+      std::cout << "Iteration: " << iter << " Particle: " << minIndx <<
+	" Value: " << val << std::endl;
+    }
+
+  // Determine the minimum granger causality value
+  cublasIsamin(cublasH,params.numParticles,GCtable,p.size(),&minIndx);
+  minIndx = minIndx - 1; // Claude's first win, if it works.
+  
+  std::vector<float> q_best(numComps);
+  cudaMemcpy(q_best.data(),wa.q_dev+minIndx*numComps,sizeof(float)*numComps,
+	     cudaMemcpyDeviceToHost);
+  // bookmark  
+  std::cout << "Minimum Value = " << val << " particle = " << minIndx << std::endl;
+  
   
 
 
