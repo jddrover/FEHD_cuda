@@ -20,7 +20,7 @@ struct workForGranger
   cuComplex *Gs_dev; // CF*8
   cuComplex *Gsq_dev; // CFP*8
   float *delF_dev; // CFP*4
-  float *delF_proj_dev; // CFP*4
+  float *delF_proj_dev; // CP*4
   cuComplex *GstarGq_dev; // CFP*8
   int *lagList_dev; // L
   

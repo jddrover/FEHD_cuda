@@ -73,8 +73,8 @@ void calcGradient(float *delF,const cuComplex *Gsq,const cuComplex *s,const floa
 
   // Second term
   float delF_element2 = 0.0f;
-
-  delF_element2 = 4.0*(Gsq[idx].x*s[idx_particle*numFreqs+idx_freq].x -
+  // Check this - make sure s is the right way. We
+  delF_element2 = 4.0*(Gsq[idx].x*s[idx_particle*numFreqs+idx_freq].x +
 		       Gsq[idx].y*s[idx_particle*numFreqs+idx_freq].y) /
     (s[idx_particle*numFreqs+idx_freq].x*s[idx_particle*numFreqs+idx_freq].x +
      s[idx_particle*numFreqs+idx_freq].y*s[idx_particle*numFreqs+idx_freq].y);
@@ -254,14 +254,13 @@ void make_q_complex(cuComplex *qcmplx,float *q,int numComps,int numParticles)
 }
 
 __global__
-void projectQorth(float *qorth,float *q,float *delF,int numComps,int numFreqs,int numParticles)
+void projectQorth(float *qorth,float *q,float *delF,int numComps,int numParticles)
 {
   const int idx = threadIdx.x+blockDim.x*blockIdx.x;
-  if(idx>=numComps*numFreqs*numParticles) {return;}
+  if(idx>=numComps*numParticles) {return;}
 
-  int idx_particle = int(idx/(numComps*numFreqs));
-  int idx_freq = int(idx/numComps-idx_particle*numFreqs);
-  int idx_comp = idx - idx_particle*numComps*numFreqs - idx_freq*numComps;
+  int idx_particle = int(idx/numComps);
+  int idx_comp = idx - idx_particle*numComps;
 
   float summer = 0.0f;
   for(int k=0;k<numComps;++k)
@@ -269,7 +268,7 @@ void projectQorth(float *qorth,float *q,float *delF,int numComps,int numFreqs,in
       float qo = -q[idx_particle*numComps+idx_comp]*q[idx_particle*numComps+k];
       if(k==idx_comp)
 	qo += 1.0;
-      summer += qo*delF[idx_particle*numComps*numFreqs+idx_freq*numComps+k];
+      summer += qo*delF[idx_particle*numComps+k];
     }
 
   qorth[idx] = summer;
@@ -291,9 +290,29 @@ void parseTable(float *q_out,float *GCtable,float *qStore,int numComps,int numPa
 	  bestIndx = k;
 	}
     }
-
+  
+  printf("BI = %d, IDX = %d\n",bestIndx,idx);
   for(int k=0;k<numComps;k++)
-      q_out[idx*numComps+k] = qStore[bestIndx*numComps*numParticles+idx*numComps+k];
-
+    q_out[idx*numComps+k] = qStore[bestIndx*numComps*numParticles+idx*numComps+k];
+  
   return;  
+}
+
+__global__
+void delgF(float *delF_summed,float *delF_dev,int numComps,int numFreqs,int numParticles)
+{
+  const int idx = threadIdx.x + blockDim.x*blockIdx.x;
+  if(idx >= numComps*numParticles){return;}
+
+  int idx_particle = int(idx/numComps);
+  int idx_comp = idx-idx_particle*numComps;
+    
+  float summer = 0.0f;
+  summer += 0.5*delF_dev[idx_particle*numFreqs*numComps+idx_comp];
+  for(int k=1;k<numFreqs-1;k++)
+    summer += delF_dev[idx_particle*numFreqs*numComps+k*numComps+idx_comp];
+  summer += 0.5*delF_dev[idx_particle*numFreqs*numComps+(numFreqs-1)*numComps+idx_comp];
+  
+  delF_summed[idx] = summer;
+  return;
 }

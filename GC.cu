@@ -74,6 +74,10 @@ void gradient_vruj(workForGranger wa,int numComps,int numFreqs,int numParticles)
   grdSize = (int)((numFreqs*numComps*numComps+blksize-1)/blksize);
   const dim3 CCF_grid(grdSize);
 
+  grdSize = (int)((numComps*numParticles+blksize-1)/blksize);
+  const dim3 CP_block(blksize);
+  const dim3 CP_grid(grdSize);
+
   // Compute Gq
   makeGq<<<CFP_grid,CFP_block>>>(wa.Gq_dev,wa.G_dev,wa.q_dev,numComps,numFreqs,numParticles);
   
@@ -95,7 +99,9 @@ void gradient_vruj(workForGranger wa,int numComps,int numFreqs,int numParticles)
   calcGradient<<<CFP_grid,CFP_block>>>(wa.delF_dev,wa.Gsq_dev,wa.s_dev,wa.Gq2_dev,wa.GsGq_dev,wa.q_dev,
   				       numComps,numFreqs,numParticles);
 
-  projectQorth<<<CFP_grid,CFP_block>>>(wa.delF_proj_dev,wa.q_dev,wa.delF_dev,numComps,numFreqs,numParticles);
+  delgF<<<CP_grid,CP_block>>>(wa.q_tmp,wa.delF_dev,numComps,numFreqs,numParticles);
+  
+  projectQorth<<<CP_grid,CP_block>>>(wa.delF_proj_dev,wa.q_dev,wa.q_tmp,numComps,numParticles);
 
   cudaDeviceSynchronize();
   return;
@@ -143,13 +149,13 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L,
   // Compute the array of transfer functions
   G_vruj<<<CCF_grid,CCF_block>>>(wa.G_dev,wa.AR_dev,wa.lagList_dev,numComps,params.freqLo,
 	    params.freqHi,params.numFreqs,params.numLags,dt);
-  
+  cudaDeviceSynchronize();
   // random q's
   std::vector<float> q_host(params.numParticles*numComps);
   for(int k=0;k<numComps*params.numParticles;++k)
     q_host[k] = (float)((rand()%2000)/1000.0f-1.0f );
 
-  std::vector<float> q_host_tmp(q_host);
+  
   cudaMemcpy(wa.q_tmp,q_host.data(),sizeof(float)*numComps*params.numParticles,cudaMemcpyHostToDevice);
 
   gridsize = (int)((numComps*params.numParticles+blksize-1)/blksize);
@@ -157,8 +163,13 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L,
   const dim3 CP_grid(gridsize);
 
   normalize_q<<<CP_grid,CP_block>>>(wa.q_dev,wa.q_tmp,numComps,params.numParticles);
-    
-  std::vector<float> p = {0.0,0.000,0.00,0.0,0.0};
+
+
+  std::vector<float> q_host_tmp(numComps*params.numParticles);
+  cudaMemcpy(q_host_tmp.data(),wa.q_dev,sizeof(float)*numComps*params.numParticles,
+  	     cudaMemcpyDeviceToHost);
+
+  std::vector<float> p = {0.0,0.0001,0.001,0.01,0.05};
 
   // Make a GC table numPoint x numParticles
   float *GCtable;
@@ -177,28 +188,35 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L,
   
   std::vector<float> diffF(params.numParticles);
 
-
+  float *q_base;
+  cudaMalloc((void**)&q_base,sizeof(float)*numComps*params.numParticles);
+  cublasScopy(cublasH,numComps*params.numParticles,wa.q_dev,1,q_base,1);
+  
   for(int iter=0;iter<p.size();iter++)
     {
       float alpha = -p[iter];
 
       // Copy, move, scale
-      cublasScopy(cublasH,numComps*params.numParticles,wa.q_dev,1,wa.q_tmp,1);
+      // Things are getting confused here.
+      cublasScopy(cublasH,numComps*params.numParticles,q_base,1,wa.q_tmp,1);
+      // This is not right - The gradient needs to be computed over frequencies.
       cublasSaxpy(cublasH,numComps*params.numParticles,&alpha,wa.delF_proj_dev,1,wa.q_tmp,1);
       normalize_q<<<CP_grid,CP_block>>>(wa.q_dev,wa.q_tmp,numComps,params.numParticles);
       granger_vruj(wa,numComps,params.numFreqs,params.numParticles);
       cublasScopy(cublasH,numComps*params.numParticles,
 		  wa.q_dev,1,qStore+iter*numComps*params.numParticles,1);
-      cublasScopy(cublasH,params.numParticles,wa.GCvals_dev,1,GCtable+iter,p.size());      
+      cublasScopy(cublasH,params.numParticles,wa.GCvals_dev,1,GCtable+iter,p.size());
+      cudaDeviceSynchronize();
     }
   
-  parseTable<<<P_grid,P_block>>>(wa.q_dev,GCtable,qStore,numComps,params.numFreqs,params.numParticles);
+  parseTable<<<P_grid,P_block>>>(wa.q_dev,GCtable,qStore,numComps,params.numParticles,p.size());
+  cudaDeviceSynchronize();
   cudaMemcpy(q_host.data(),wa.q_dev,sizeof(float)*numComps*params.numParticles,
 	     cudaMemcpyDeviceToHost);
-  for(int k=0;k<numComps*params.numParticles;k++)
+  for(int k=0;k<numComps;k++)
     std::cout << q_host[k] << " " << q_host_tmp[k] << std::endl;
   
-  //cudaDeviceSynchronize();
+
   
 
 
