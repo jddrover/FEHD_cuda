@@ -73,7 +73,7 @@ void calcGradient(float *delF,const cuComplex *Gsq,const cuComplex *s,const floa
 
   // Second term
   float delF_element2 = 0.0f;
-  // Check this - make sure s is the right way. We
+  
   delF_element2 = 4.0*(Gsq[idx].x*s[idx_particle*numFreqs+idx_freq].x +
 		       Gsq[idx].y*s[idx_particle*numFreqs+idx_freq].y) /
     (s[idx_particle*numFreqs+idx_freq].x*s[idx_particle*numFreqs+idx_freq].x +
