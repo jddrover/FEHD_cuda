@@ -107,7 +107,7 @@ void gradient_vruj(workForGranger wa,int numComps,int numFreqs,int numParticles)
   return;
 }
 
-void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L,
+void runFEHDstep(std::vector<float> &q_best, std::vector<float> &L,
 		 dataClass<float> dataArray,paramContainer params,int numComps)
 {
   int id;
@@ -218,31 +218,35 @@ void runFEHDstep(std::vector<float> &bestAngle, std::vector<float> &L,
 	  cudaDeviceSynchronize();
 	}
   
-      parseTable<<<P_grid,P_block>>>(wa.q_dev,GCtable,qStore,numComps,params.numParticles,p.size());
-      cudaDeviceSynchronize();
-      //cublasIsamin(cublasH,params.numParticles,GCtable,p.size(),&minIndx);
-      //minIndx = minIndx - 1; // Claude's first win, if it works.
-      //cudaMemcpy(&val,GCtable+p.size()*minIndx,sizeof(float),cudaMemcpyDeviceToHost);
-      //std::cout << "Iteration: " << iter << " Particle: " << minIndx <<
-      //	" Value: " << val << std::endl;
+      parseTable<<<P_grid,P_block>>>(wa.q_dev,GCtable,qStore,numComps,
+				     params.numParticles,p.size());
+      if(params.verbose)
+	{
+	  cublasIsamin(cublasH,params.numParticles,GCtable,p.size(),&minIndx);
+	  minIndx = minIndx - 1; // Claude's first win, if it works.
+	  cudaMemcpy(&val,GCtable+p.size()*minIndx,sizeof(float),cudaMemcpyDeviceToHost);
+	  std::cout << "Iteration: " << iter << " Particle: " << minIndx <<
+	    " Value: " << val << std::endl;
+	}
     }
 
   // Determine the minimum granger causality value
   cublasIsamin(cublasH,params.numParticles,GCtable,p.size(),&minIndx);
   minIndx = minIndx - 1; // Claude's first win, if it works.
   
-  std::vector<float> q_best(numComps);
+  
   cudaMemcpy(q_best.data(),wa.q_dev+minIndx*numComps,sizeof(float)*numComps,
 	     cudaMemcpyDeviceToHost);
-  cudaMemcpy(&val,GCtable+p.size()*minIndx,sizeof(float),cudaMemcpyDeviceToHost);
+
+  freeWorkArray(wa);
+  cudaFree(q_base);
+  cudaFree(qStore);
+  cudaFree(GCtable);
+  //cudaMemcpy(&val,GCtable+p.size()*minIndx,sizeof(float),cudaMemcpyDeviceToHost);
   // bookmark  
-  std::cout << "Minimum Value = " << val << " particle = " << minIndx << std::endl;
-  
-  
-
-
-  
-  exit(0);
+  //std::cout << "Minimum Value = " << val << " particle = " << minIndx << std::endl;
+    
+  //exit(0);
   return;
 }
   

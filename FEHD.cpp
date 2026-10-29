@@ -9,6 +9,7 @@
 #include "utility.h"
 #include <chrono>
 #include <cblas.h>
+#include <lapacke.h>
 #include "dataClass.h"
 #include "dataManip.h"
 //#include "timeSeriesOPs.h"
@@ -25,19 +26,43 @@ void runFEHD(dataClass<float> dataArray, std::vector<float> &Lmat, paramContaine
   for(int numComps = params.numPCs;numComps>1;numComps--)
     {
       std::vector<float> Rdecor(numComps*numComps);
-      std::vector<float> bestAngle(numComps-1);
+      std::vector<float> q(numComps);
       
       // Find the angle that results smallest upward causality.
       
-      runFEHDstep(bestAngle, Rdecor, dataiter, params, numComps);
+      runFEHDstep(q, Rdecor, dataiter, params, numComps);
 
       // Local Q, going to assemble from the angles.
-      std::vector<float> Q(numComps*numComps);      
-      singleQ(Q,bestAngle);
+      // Create Q from the orthogonal projection with the QR factorization.
+      // This is a two step process.
       
+      std::vector<float> Q(numComps*numComps);      
+      
+      for(int row=0;row<numComps;row++)
+	for(int col=0;col<numComps;col++)
+	  {
+	    Q[col*numComps+row] = -q[row]*q[col];
+	    if(row == col)
+	      Q[col*numComps+row] += 1.0f;
+	  }
+      std::vector<float> tau(numComps);
+      LAPACKE_sgeqrf(LAPACK_COL_MAJOR,numComps,numComps,Q.data(),numComps,tau.data());
+      LAPACKE_sorgqr(LAPACK_COL_MAJOR,numComps,numComps,numComps,Q.data(),numComps,tau.data());
+
+    
+      
+      
+      if(Q[0,numComps-1]*q[0] < 0.0)
+	 for(int comp=0;comp<numComps;comp++)
+	   {
+	     Q[comp,numComps-1] = -Q[comp,numComps-1];
+	   }
+
+      //      exit(0);
+	    
       std::vector<float> T(numComps*numComps);
       
-      cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans,
+      cblas_sgemm(CblasColMajor, CblasTrans, CblasNoTrans,
 		  numComps,numComps,numComps,
 		  alpha,Q.data(),numComps,
 		  Rdecor.data(),numComps,
