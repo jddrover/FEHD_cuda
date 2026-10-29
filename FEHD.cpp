@@ -49,17 +49,13 @@ void runFEHD(dataClass<float> dataArray, std::vector<float> &Lmat, paramContaine
       LAPACKE_sgeqrf(LAPACK_COL_MAJOR,numComps,numComps,Q.data(),numComps,tau.data());
       LAPACKE_sorgqr(LAPACK_COL_MAJOR,numComps,numComps,numComps,Q.data(),numComps,tau.data());
 
-    
-      
-      
-      if(Q[0,numComps-1]*q[0] < 0.0)
+      // The sign can be different. I doubt this is necessary.
+      /*if(Q[0,numComps-1]*q[0] < 0.0)
 	 for(int comp=0;comp<numComps;comp++)
 	   {
 	     Q[comp,numComps-1] = -Q[comp,numComps-1];
 	   }
-
-      //      exit(0);
-	    
+      */  
       std::vector<float> T(numComps*numComps);
       
       cblas_sgemm(CblasColMajor, CblasTrans, CblasNoTrans,
