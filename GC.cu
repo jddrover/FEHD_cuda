@@ -28,7 +28,7 @@ void granger_vruj(workForGranger wa,int numComps, int numFreqs,int numParticles)
   // worker Gq is numFreqs x numComps x numParticles
   // worker qtGq is numFreqs x numParticles
   
-  int blksize = 1024;
+  int blksize = 768;
   
   int grdsize = (int)((numParticles*numFreqs*numComps+blksize-1)/blksize);
   const dim3 CFP_block(blksize);
@@ -59,7 +59,7 @@ void gradient_vruj(workForGranger wa,int numComps,int numFreqs,int numParticles)
 {
 
   // numComps * numFreqs * numParticles
-  int blksize = 1024;
+  int blksize = 768;
   const dim3 CFP_block(blksize);
   int grdSize = (int)((numParticles*numFreqs*numComps+blksize-1)/blksize);
   const dim3 CFP_grid(grdSize);
