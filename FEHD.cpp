@@ -32,30 +32,30 @@ void runFEHD(dataClass<float> dataArray, std::vector<float> &Lmat, paramContaine
       
       runFEHDstep_v3(q, Rdecor, dataiter, params, numComps);
 
-      // Local Q, going to assemble from the angles.
-      // Create Q from the orthogonal projection with the QR factorization.
-      // This is a two step process.
-      
-      std::vector<float> Q(numComps*numComps);      
-      
-      for(int row=0;row<numComps;row++)
-	for(int col=0;col<numComps;col++)
-	  {
-	    Q[col*numComps+row] = -q[row]*q[col];
-	    if(row == col)
-	      Q[col*numComps+row] += 1.0f;
-	  }
-      std::vector<float> tau(numComps);
-      LAPACKE_sgeqrf(LAPACK_COL_MAJOR,numComps,numComps,Q.data(),numComps,tau.data());
-      LAPACKE_sorgqr(LAPACK_COL_MAJOR,numComps,numComps,numComps,Q.data(),numComps,tau.data());
+      // Orthogonal Q (column-major) whose last column is +-q, built directly as a
+      // Householder reflection:
+      //    v = q + s*e_last,  s = sign(q_last) (+1 if q_last = 0),
+      //    Q = I - 2 v v^T / (v^T v).
+      // Then Q*q = -s*e_last; Q is symmetric and Q*Q = I, so its last column (and row) is
+      // -s*q, and the other columns are an orthonormal basis of the directions orthogonal
+      // to q. v^T v = 2 + 2|q_last| >= 2, so there is no cancellation for any q.
+      // (The previous QR of I - q q^T only works if q_last is not near 0; with q_last = 0
+      // its last column comes out orthogonal to q, so the wrong component would be removed.)
+      // The sign of the last row does not matter: that component is removed below.
+      // Assumes q has unit length, which runFEHDstep_* guarantees.
+      std::vector<float> Q(numComps*numComps);
+      {
+        const int last = numComps-1;
+        const float s = (q[last] >= 0.0f) ? 1.0f : -1.0f;
+        std::vector<float> v(q);
+        v[last] += s;
+        float vtv = 0.0f;
+        for(int i=0;i<numComps;i++) vtv += v[i]*v[i];
+        for(int col=0;col<numComps;col++)
+          for(int row=0;row<numComps;row++)
+            Q[col*numComps+row] = ((row == col) ? 1.0f : 0.0f) - 2.0f*v[row]*v[col]/vtv;
+      }
 
-      // The sign can be different. I doubt this is necessary.
-      /*if(Q[0,numComps-1]*q[0] < 0.0)
-	 for(int comp=0;comp<numComps;comp++)
-	   {
-	     Q[comp,numComps-1] = -Q[comp,numComps-1];
-	   }
-      */  
       std::vector<float> T(numComps*numComps);
       
       cblas_sgemm(CblasColMajor, CblasTrans, CblasNoTrans,

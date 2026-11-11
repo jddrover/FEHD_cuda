@@ -430,7 +430,10 @@ void runFEHDstep_v3(std::vector<float> &q_best, std::vector<float> &L,
   const int paddedComps = v3_paddedComps(numComps);
   if(paddedComps < 0)
     {
-      std::cout << "runFEHDstep_v3: numComps = " << numComps << " > 32, use runFEHDstep_v2" << std::endl;
+      // Version 3 is compiled for numComps <= 32. Fall back to version 2 rather than
+      // returning without filling q_best and L (which would make the caller transform the
+      // data with garbage).
+      runFEHDstep_v2(q_best, L, dataArray, params, numComps);
       return;
     }
 
