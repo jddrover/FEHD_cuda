@@ -30,7 +30,7 @@ void runFEHD(dataClass<float> dataArray, std::vector<float> &Lmat, paramContaine
       
       // Find the angle that results smallest upward causality.
       
-      runFEHDstep(q, Rdecor, dataiter, params, numComps);
+      runFEHDstep_v3(q, Rdecor, dataiter, params, numComps);
 
       // Local Q, going to assemble from the angles.
       // Create Q from the orthogonal projection with the QR factorization.
